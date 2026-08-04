@@ -83,7 +83,7 @@ cd /local/masterproef_repos/benchmark-jfed
 ./scripts/jfed/prepare-data.sh smoke-1m
 ```
 
-Then run every configured framework with one logical client, one iteration, and the complete query set of 100 queries (20 WatDiv templates with 5 generated instances each):
+Then run every configured framework with one logical client, one iteration, and the five selected WatDiv queries:
 
 ```bash
 ./scripts/jfed/run-profile.sh smoke-1m
@@ -119,8 +119,8 @@ The full profile uses:
 
 - Dataset sizes: `1m 10m 50m 100m`.
 - Concurrency: `1 2 4 8 16 32 64`.
-- Iterations: `3`.
-- Queries per client and iteration: `100` (`20` templates with `5` instances each).
+- Iterations: `1`.
+- Queries per client and iteration: `5` (`C1`, `F1`, `L1`, `S1`, and `S7`, instance 1). WatDiv has four shape classes (`C`, `F`, `L`, and `S`), so `S7` adds a second star-query selectivity case.
 - Physical client capacities: `22 21 21`.
 - Per logical client: `0.15` CPU core, `896 MiB` RAM, and `20 Mbit/s`.
 - SmartKG, SmartKG+, and WiseKG: cold and warm cache runs.

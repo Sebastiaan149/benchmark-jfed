@@ -7,8 +7,15 @@
   },
   "concurrency": [1, 2, 4, 8, 16, 32, 64],
   "defaultIterations": 1,
-  "queryCount": 5,
+  "queryCount": 1,
   "queryRecurrence": 1,
+  "querySelection": [
+    { "template": "C1", "instance": 1 },
+    { "template": "F1", "instance": 1 },
+    { "template": "L1", "instance": 1 },
+    { "template": "S1", "instance": 1 },
+    { "template": "S7", "instance": 1 }
+  ],
   "resources": {
     "workers": 6,
     "javaXms": "8g",

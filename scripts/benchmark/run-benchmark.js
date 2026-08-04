@@ -47,14 +47,28 @@ function listQueryFiles(dir) {
 // WatDiv stores several query instances in each template file, separated by
 // one empty line. Expand them before benchmarking so each process receives one
 // complete SPARQL query, matching the canonical WatDiv benchmark runner.
-function loadQueries(dir) {
-  return listQueryFiles(dir).flatMap((file) =>
+function loadQueries(dir, selection = []) {
+  const queries = listQueryFiles(dir).flatMap((file) =>
     fs.readFileSync(file, 'utf8')
       .replaceAll('\r\n', '\n')
       .split('\n\n')
       .map(query => query.trim())
       .filter(Boolean)
       .map((query, index) => ({ file, instance: index + 1, query })));
+
+  if (selection.length === 0) {
+    return queries;
+  }
+
+  return selection.map(({ template, instance }) => {
+    const selected = queries.find(query =>
+      path.basename(query.file, path.extname(query.file)).toLowerCase() === String(template).toLowerCase() &&
+      query.instance === Number(instance));
+    if (!selected) {
+      throw new Error(`Selected WatDiv query ${template} instance ${instance} does not exist in ${dir}`);
+    }
+    return selected;
+  });
 }
 
 function ensureDir(dir) {
@@ -522,7 +536,7 @@ async function main() {
     config.resources.queryTimeoutSeconds) * 1_000;
   const dataDir = path.join(dataRoot, size);
   const queriesDir = path.join(dataDir, 'queries');
-  const queries = loadQueries(queriesDir);
+  const queries = loadQueries(queriesDir, config.querySelection);
   if (queries.length === 0) {
     throw new Error(`No .txt queries found in ${queriesDir}`);
   }
