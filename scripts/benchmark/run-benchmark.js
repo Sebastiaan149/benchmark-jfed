@@ -31,17 +31,30 @@ function parseArgs(argv) {
   return args;
 }
 
-function listQueries(dir) {
-  const entries = [];
+function listQueryFiles(dir) {
+  const files = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      entries.push(...listQueries(full));
+      files.push(...listQueryFiles(full));
     } else if (entry.isFile() && entry.name.endsWith('.txt')) {
-      entries.push(full);
+      files.push(full);
     }
   }
-  return entries.sort();
+  return files.sort();
+}
+
+// WatDiv stores several query instances in each template file, separated by
+// one empty line. Expand them before benchmarking so each process receives one
+// complete SPARQL query, matching the canonical WatDiv benchmark runner.
+function loadQueries(dir) {
+  return listQueryFiles(dir).flatMap((file) =>
+    fs.readFileSync(file, 'utf8')
+      .replaceAll('\r\n', '\n')
+      .split('\n\n')
+      .map(query => query.trim())
+      .filter(Boolean)
+      .map((query, index) => ({ file, instance: index + 1, query })));
 }
 
 function ensureDir(dir) {
@@ -50,6 +63,17 @@ function ensureDir(dir) {
 
 function removeDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
+}
+
+function resetRunDir(dir) {
+  ensureDir(dir);
+  for (const entry of fs.readdirSync(dir)) {
+    // The network monitor is already writing this file when the workload
+    // starts, so removing it here would detach its open file descriptor.
+    if (entry !== 'client-netns.csv') {
+      removeDir(path.join(dir, entry));
+    }
+  }
 }
 
 function parseMemoryToBytes(value) {
@@ -296,13 +320,12 @@ async function runClient({
   async function runPass(phase) {
     const rows = [];
     for (let queryIndex = 0; queryIndex < querySlice.length; queryIndex++) {
-      const queryFile = querySlice[queryIndex];
-      const query = fs.readFileSync(queryFile, 'utf8');
-      const queryName = path.relative(dataRoot, queryFile).replaceAll(path.sep, '/');
+      const queryEntry = querySlice[queryIndex];
+      const queryName = path.relative(dataRoot, queryEntry.file).replaceAll(path.sep, '/');
       const command = netnsPrefix ? 'ip' : 'node';
       const commandArgs = netnsPrefix ?
-        [ 'netns', 'exec', `${netnsPrefix}${globalClientId}`, 'node', engineBin, source, query ] :
-        [ engineBin, source, query ];
+        [ 'netns', 'exec', `${netnsPrefix}${globalClientId}`, 'node', engineBin, source, queryEntry.query ] :
+        [ engineBin, source, queryEntry.query ];
       const result = await runCommand(command, commandArgs, {
         cwd: clientDir,
         env,
@@ -312,7 +335,7 @@ async function runClient({
         cpuMax: clientCpuMax,
         memoryMax: clientMemoryMax,
       }), retainQueryOutputs);
-      const safeName = queryName.replace(/[^a-zA-Z0-9_.-]+/gu, '_');
+      const safeName = `${queryName}-instance-${queryEntry.instance}`.replace(/[^a-zA-Z0-9_.-]+/gu, '_');
       const outFile = path.join(clientDir, 'outputs', `${phase}-${queryIndex}-${safeName}.out`);
       const errFile = path.join(clientDir, 'outputs', `${phase}-${queryIndex}-${safeName}.err`);
       if (retainQueryOutputs) {
@@ -328,6 +351,7 @@ async function runClient({
         client: globalClientId,
         queryIndex,
         query: queryName,
+        queryInstance: queryEntry.instance,
         status: result.status,
         signal: result.signal || '',
         timedOut: result.timedOut,
@@ -365,6 +389,7 @@ function writeCsv(file, rows) {
     'client',
     'queryIndex',
     'query',
+    'queryInstance',
     'status',
     'signal',
     'timedOut',
@@ -497,7 +522,7 @@ async function main() {
     config.resources.queryTimeoutSeconds) * 1_000;
   const dataDir = path.join(dataRoot, size);
   const queriesDir = path.join(dataDir, 'queries');
-  const queries = listQueries(queriesDir);
+  const queries = loadQueries(queriesDir);
   if (queries.length === 0) {
     throw new Error(`No .txt queries found in ${queriesDir}`);
   }
@@ -506,8 +531,7 @@ async function main() {
   const source = (args.source || frameworkConfig.source).replaceAll('{port}', String(port));
   const runRootBase = path.join(resultsRoot, size, framework, cacheMode, `c${totalConcurrency}`);
   const runRoot = runLabel ? path.join(runRootBase, runLabel) : runRootBase;
-  removeDir(runRoot);
-  ensureDir(runRoot);
+  resetRunDir(runRoot);
 
   const allSummaries = [];
   for (let iteration = 1; iteration <= iterations; iteration++) {
@@ -570,7 +594,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error.stack || error.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.stack || error.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { loadQueries, resetRunDir };
