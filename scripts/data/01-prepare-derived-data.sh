@@ -99,14 +99,53 @@ const metadata = JSON.parse(fs.readFileSync(metadataFile, 'utf8'));
 if (!Array.isArray(metadata.families) || metadata.families.length === 0) {
   throw new Error(`No families found in ${metadataFile}`);
 }
-for (const family of metadata.families) {
+const byIndex = new Map(metadata.families.map(family => [ family.index, family ]));
+const validated = new Set();
+const visiting = new Set();
+let materializedFamilies = 0;
+let virtualFamilies = 0;
+
+function validateFamily(family) {
+  if (validated.has(family.index)) {
+    return;
+  }
+  if (visiting.has(family.index)) {
+    throw new Error(`Cyclic sourceSet detected at family ${family.index}`);
+  }
   if (typeof family.name !== 'string' || !family.name.endsWith('.hdt')) {
     throw new Error(`Family ${family.index ?? '?'} does not reference an HDT file: ${family.name}`);
   }
-  if (!fs.existsSync(family.name)) {
-    throw new Error(`Converted family file does not exist: ${family.name}`);
+
+  if (fs.existsSync(family.name)) {
+    if (!fs.existsSync(`${family.name}.index.v1-1`)) {
+      throw new Error(`Converted family index does not exist: ${family.name}.index.v1-1`);
+    }
+    materializedFamilies++;
+    validated.add(family.index);
+    return;
   }
+
+  if (!Array.isArray(family.sourceSet) || family.sourceSet.length === 0) {
+    throw new Error(`Family ${family.index} has no HDT file and no sourceSet: ${family.name}`);
+  }
+
+  visiting.add(family.index);
+  for (const sourceIndex of family.sourceSet) {
+    const sourceFamily = byIndex.get(sourceIndex);
+    if (!sourceFamily) {
+      throw new Error(`Family ${family.index} references unknown source family ${sourceIndex}`);
+    }
+    validateFamily(sourceFamily);
+  }
+  visiting.delete(family.index);
+  virtualFamilies++;
+  validated.add(family.index);
 }
+
+for (const family of metadata.families) {
+  validateFamily(family);
+}
+console.log(`Validated ${materializedFamilies} materialized and ${virtualFamilies} virtual families.`);
 NODE
 
   while IFS= read -r -d '' nt_file; do
