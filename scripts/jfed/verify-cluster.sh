@@ -28,5 +28,5 @@ for target in "${remote_clients[@]}"; do
 done
 
 ssh -o BatchMode=yes "$SERVER_SSH" \
-  "set -e; node --version; java -version; mvn --version | head -n 2; docker info >/dev/null; df -h '$WORKSPACE_ROOT'"
+  "set -e; hard_limit=\$(ulimit -Hn); if [[ \"\$hard_limit\" != unlimited ]] && (( hard_limit < 131072 )); then echo \"Server nofile hard limit is too low: \$hard_limit\" >&2; exit 1; fi; node --version; java -version; mvn --version | head -n 2; docker info >/dev/null; df -h '$WORKSPACE_ROOT'"
 echo "jFed cluster verification complete."

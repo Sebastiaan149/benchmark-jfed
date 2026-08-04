@@ -11,6 +11,7 @@ DELETE_PARTITION_NT="${DELETE_PARTITION_NT:-1}"
 DATA_PREP_NODE_MB="${DATA_PREP_NODE_MB:-49152}"
 DATA_PREP_JAVA_XMS="${DATA_PREP_JAVA_XMS:-8g}"
 DATA_PREP_JAVA_XMX="${DATA_PREP_JAVA_XMX:-48g}"
+GET_FAMILIES_NOFILE="${GET_FAMILIES_NOFILE:-131072}"
 RDF2HDT="$SMARTKG_CREATOR_DIR/libhdt/tools/rdf2hdt"
 GET_FAMILIES="$SMARTKG_CREATOR_DIR/libhdt/tools/getFamilies"
 MAKE_CLASSES="$SMARTKG_CREATOR_DIR/make_filtered_classes.sh"
@@ -27,6 +28,17 @@ framework_enabled() {
     fi
   done
   return 1
+}
+
+prepare_get_families_limits() {
+  local hard_limit
+  hard_limit="$(ulimit -Hn)"
+  if [[ "$hard_limit" != "unlimited" ]] && (( hard_limit < GET_FAMILIES_NOFILE )); then
+    echo "getFamilies requires a nofile limit of at least $GET_FAMILIES_NOFILE; the hard limit is $hard_limit." >&2
+    exit 1
+  fi
+  ulimit -Sn "$GET_FAMILIES_NOFILE"
+  echo "getFamilies open-file limit: $(ulimit -Sn)."
 }
 
 convert_nt_dir_to_hdt() {
@@ -224,6 +236,7 @@ prepare_partitioning_with_tool() {
   mkdir -p "$nt_dir" "$hdt_dir"
 
   if [[ ! -f "$part_dir/metadata.json" || "${FORCE_PARTITIONING:-0}" == "1" ]]; then
+    prepare_get_families_limits
     rm -f "$nt_dir"/*.nt "$part_dir"/metadata*.json
     if [[ "${FORCE_PARTITIONING:-0}" == "1" ]]; then
       rm -f "$hdt_dir"/*.hdt "$hdt_dir"/*.hdt.index.v1-1
@@ -260,6 +273,7 @@ prepare_typed_partitioning_with_tool() {
   fi
 
   if [[ ! -f "$typed_dir/metadata.json" || "${FORCE_TYPED_PARTITIONING:-0}" == "1" ]]; then
+    prepare_get_families_limits
     rm -f "$nt_dir"/*.nt "$typed_dir"/metadata*.json
     if [[ "${FORCE_TYPED_PARTITIONING:-0}" == "1" ]]; then
       rm -f "$hdt_dir"/*.hdt "$hdt_dir"/*.hdt.index.v1-1
