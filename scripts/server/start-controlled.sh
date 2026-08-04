@@ -43,7 +43,11 @@ if [[ -f "$SERVER_CGROUP_ROOT/memory.max" ]]; then
 fi
 
 (
-  echo "$BASHPID" | sudo tee "$SERVER_CGROUP_ROOT/cgroup.procs" >/dev/null
+  # Capture the long-lived launcher shell before starting the pipeline. Using
+  # BASHPID directly inside the pipeline identifies its short-lived echo
+  # subprocess, which may exit before tee writes the PID to cgroup.procs.
+  launcher_pid="$BASHPID"
+  printf '%s\n' "$launcher_pid" | sudo tee "$SERVER_CGROUP_ROOT/cgroup.procs" >/dev/null
   exec setsid "$SCRIPT_DIR/start-server.sh" "$FRAMEWORK" "$SIZE"
 ) > "$LOG_DIR/server-$SIZE-$FRAMEWORK.log" 2>&1 &
 

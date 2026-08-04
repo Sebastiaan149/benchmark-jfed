@@ -149,18 +149,35 @@ cache_modes_for_framework() {
 # This avoids measuring server boot time as query latency.
 wait_for_server() {
   local framework="$1"
+  local size="$2"
   local port
   local url
+  local attempt
   port="$(framework_port "$framework")"
   url="$(framework_source_url "$framework" "$port")"
-  for _ in $(seq 1 "$SERVER_STARTUP_SECONDS"); do
+  for attempt in $(seq 1 "$SERVER_STARTUP_SECONDS"); do
     if curl -fsS -I "$url" >/dev/null 2>&1 || curl -fsS "$url" >/dev/null 2>&1; then
       return 0
+    fi
+    if (( attempt % 5 == 0 )) && ! remote "pid=\$(cat '$REMOTE_BENCHMARK_DIR/tmp/jfed-server.pid' 2>/dev/null || true); [[ \"\$pid\" =~ ^[0-9]+\$ ]] && kill -0 \"\$pid\" 2>/dev/null"; then
+      echo "Server process exited before answering at $url." >&2
+      show_server_diagnostics "$framework" "$size"
+      return 1
     fi
     sleep 1
   done
   echo "Server did not answer at $url after ${SERVER_STARTUP_SECONDS}s." >&2
+  show_server_diagnostics "$framework" "$size"
   return 1
+}
+
+# Print enough remote state to diagnose startup failures directly from the
+# controller. Logs remain available after the cleanup trap stops the server.
+show_server_diagnostics() {
+  local framework="$1"
+  local size="$2"
+  local log_file="$REMOTE_BENCHMARK_DIR/logs/jfed/server-$size-$framework.log"
+  remote "echo '--- remote server process ---'; pid=\$(cat '$REMOTE_BENCHMARK_DIR/tmp/jfed-server.pid' 2>/dev/null || true); if [[ \"\$pid\" =~ ^[0-9]+\$ ]]; then ps -o pid,ppid,stat,etime,rss,cmd -p \"\$pid\" || true; else echo 'No server PID file found.'; fi; echo '--- listening port ---'; ss -ltnp 2>/dev/null | grep ':$(framework_port "$framework") ' || true; echo '--- last 120 server log lines ---'; tail -n 120 '$log_file' 2>/dev/null || echo 'Server log not found: $log_file'" >&2
 }
 
 # Start one benchmark server on the remote server node. The stop command must
@@ -171,7 +188,7 @@ start_server() {
   stop_server
   echo "==> Starting server framework=$framework size=$size"
   remote "cd '$REMOTE_WORKSPACE' && $(remote_export_prefix) FRAMEWORK='$framework' SIZE='$size' ./benchmark-jfed/scripts/server/start-controlled.sh"
-  wait_for_server "$framework"
+  wait_for_server "$framework" "$size"
 }
 
 # Stop the current remote server and wait until its complete cgroup is empty.
