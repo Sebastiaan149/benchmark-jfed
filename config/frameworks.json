@@ -1,0 +1,107 @@
+{
+  "sizes": {
+    "1m": { "scale": "10", "expectedTriples": 1000000 },
+    "10m": { "scale": "100", "expectedTriples": 10000000 },
+    "50m": { "scale": "500", "expectedTriples": 50000000 },
+    "100m": { "scale": "1000", "expectedTriples": 100000000 }
+  },
+  "concurrency": [1, 2, 4, 8, 16, 32, 64],
+  "defaultIterations": 1,
+  "queryCount": 5,
+  "queryRecurrence": 1,
+  "resources": {
+    "workers": 6,
+    "javaXms": "8g",
+    "javaXmx": "56g",
+    "clientNodeMaxOldSpaceSizeMb": 768,
+    "serverNodeMaxOldSpaceSizeMb": 57344,
+    "queryTimeoutSeconds": 300,
+    "sampleIntervalMs": 1000,
+    "retainQueryOutputs": false,
+    "keepClientCaches": false
+  },
+  "frameworks": {
+    "smartkg": {
+      "port": 18080,
+      "server": "original-smartkg-server",
+      "engine": "query-sparql-smartkg",
+      "source": "http://localhost:{port}/smartkg",
+      "cacheModes": ["cold", "warm"],
+      "requires": ["dataset.hdt", "partitioning/metadata.json", "partitioning/hdt"]
+    },
+    "smartkg-plus": {
+      "port": 18081,
+      "server": "smartkg_plus_server",
+      "engine": "query-sparql-smartkg",
+      "source": "smartkg+@http://localhost:{port}/smartkg+",
+      "cacheModes": ["cold", "warm"],
+      "requires": ["dataset.hdt", "dataset.hdt.cs", "typed-partitioning/metadata.json", "typed-partitioning/hdt"]
+    },
+    "wisekg": {
+      "port": 18082,
+      "server": "wisekg-server",
+      "engine": "query-sparql-wisekg",
+      "source": "wisekg@http://localhost:{port}/wisekg",
+      "cacheModes": ["cold", "warm"],
+      "requires": ["dataset.hdt", "dataset.hdt.cs", "partitioning/metadata.json", "partitioning/hdt"]
+    },
+    "passage": {
+      "port": 18083,
+      "server": "passage-server",
+      "engine": "query-passage",
+      "source": "passage@http://localhost:{port}/data/passage",
+      "cacheModes": ["cold"],
+      "requires": ["passage/local-data.properties", "passage/dataset.jnl"]
+    },
+    "spf": {
+      "port": 18084,
+      "server": "spf-server",
+      "engine": "query-sparql-spf",
+      "source": "spf@http://localhost:{port}/spf",
+      "cacheModes": ["cold"],
+      "requires": ["dataset.hdt"]
+    },
+    "ldf-endpoint": {
+      "port": 18085,
+      "server": "comunica-file-http",
+      "engine": "query-sparql",
+      "source": "http://localhost:{port}/sparql",
+      "cacheModes": ["cold"],
+      "requires": ["dataset.nt"]
+    },
+    "ldf-tpf": {
+      "port": 18086,
+      "server": "server-js-tpf",
+      "engine": "query-sparql",
+      "source": "http://localhost:{port}/watdiv",
+      "cacheModes": ["cold"],
+      "requires": ["dataset.hdt"]
+    },
+    "ldf-qpf": {
+      "port": 18087,
+      "server": "server-js-qpf",
+      "engine": "query-sparql",
+      "source": "http://localhost:{port}/watdiv",
+      "cacheModes": ["cold"],
+      "requires": ["dataset.hdt"]
+    },
+    "ldf-dump-hdt": {
+      "port": 18089,
+      "server": "static-hdt-dump",
+      "engine": "query-sparql-hdt",
+      "clientMode": "hdt-download",
+      "source": "http://localhost:{port}/hdt/dataset.hdt",
+      "cacheModes": ["cold"],
+      "queryTimeoutSeconds": 1800,
+      "requires": ["dataset.hdt", "dataset.hdt.index.v1-1"]
+    },
+    "ldf-brtpf": {
+      "port": 18090,
+      "server": "spf-server",
+      "engine": "query-sparql",
+      "source": "brtpf@http://localhost:{port}/spf",
+      "cacheModes": ["cold"],
+      "requires": ["dataset.hdt"]
+    }
+  }
+}
