@@ -14,7 +14,7 @@ case "$ACTION" in
     fi
     public_key="$(cat "$HOME/.ssh/id_ed25519.pub")"
     [[ "$public_key" == ssh-ed25519\ * ]] || { echo "Could not create an Ed25519 key." >&2; exit 1; }
-    printf "mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && { grep -qxF %q ~/.ssh/authorized_keys || printf '%%s\\n' %q >> ~/.ssh/authorized_keys; } && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys\n" \
+    printf 'mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && { grep -qxF %q ~/.ssh/authorized_keys || echo %q >> ~/.ssh/authorized_keys; } && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys\n' \
       "$public_key" "$public_key"
     ;;
   verify)
