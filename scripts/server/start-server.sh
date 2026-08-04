@@ -54,9 +54,9 @@ write_java_config() {
   local dataset_file="$5"
   local cspath="${6:-}"
   local output="$7"
-  node - "$name" "$datasource" "$metadata_path" "$molecules_path" "$dataset_file" "$cspath" "$output" "$PORT" <<'NODE'
+  node - "$name" "$datasource" "$metadata_path" "$molecules_path" "$dataset_file" "$cspath" "$output" "$PORT" "${SERVER_IP:-localhost}" <<'NODE'
 const fs = require('fs');
-const [ name, datasource, metadataPath, moleculesPath, datasetFile, csPath, output, port ] = process.argv.slice(2);
+const [ name, datasource, metadataPath, moleculesPath, datasetFile, csPath, output, port, serverHost ] = process.argv.slice(2);
 const config = {
   title: `${name} WatDiv server`,
   metadatapath: metadataPath,
@@ -91,7 +91,7 @@ if (csPath) {
   config.cspath = csPath;
   config.partstring = '';
   config.default = datasource;
-  config.uri = `http://localhost:${port}/`;
+  config.uri = `http://${serverHost}:${port}/`;
 }
 if (datasource === 'smartkg') {
   config.datasources[datasource].serverType = 'original-smartkg';

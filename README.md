@@ -74,6 +74,36 @@ git pull --ff-only
 ./scripts/jfed/deploy-cluster.sh
 ```
 
+If a previous build left modified or generated files in one of the cloned repositories, perform a clean workspace reinstall. This removes all repositories, prepared data, logs, and results under `/local/masterproef_repos`, but keeps the controller SSH key in `~/.ssh`.
+
+First remove the remote workspaces from `client0`:
+
+```bash
+cd /local/masterproef_repos/benchmark-jfed
+source config/cluster.env
+
+for host in "$SERVER_SSH" $CLIENT_SSHS; do
+  ssh "$host" '
+    sudo rm -rf /local/masterproef_repos
+    sudo install -d -o "$(id -un)" -g "$(id -gn)" /local/masterproef_repos
+  '
+done
+```
+
+Then recreate the workspace on `client0` and deploy again:
+
+```bash
+cd /local
+sudo rm -rf /local/masterproef_repos
+sudo install -d -o "$(id -un)" -g "$(id -gn)" /local/masterproef_repos
+git clone https://github.com/Sebastiaan149/benchmark-jfed.git /local/masterproef_repos/benchmark-jfed
+cd /local/masterproef_repos/benchmark-jfed
+./scripts/jfed/controller-key.sh verify
+./scripts/jfed/deploy-cluster.sh
+```
+
+Reprovision the nodes through jFed instead when the operating system and installed packages must also be reset.
+
 ## 5. One-Client 1M Check
 
 First prepare only the 1M dataset on `server0`:

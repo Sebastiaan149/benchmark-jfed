@@ -108,8 +108,8 @@ use_remote_clients() {
 
 # Build a safely quoted environment prefix for remote server commands.
 remote_export_prefix() {
-  printf 'WORKSPACE_ROOT=%q BENCHMARK_DIR=%q DATA_ROOT=%q RESULTS_ROOT=%q CONFIG_FILE=%q SAMPLE_INTERVAL_MS=%q ' \
-    "$REMOTE_WORKSPACE" "$REMOTE_BENCHMARK_DIR" "$REMOTE_BENCHMARK_DIR/data" "$REMOTE_RESULTS_ROOT" "$REMOTE_BENCHMARK_DIR/config/frameworks.json" "$SAMPLE_INTERVAL_MS"
+  printf 'WORKSPACE_ROOT=%q BENCHMARK_DIR=%q DATA_ROOT=%q RESULTS_ROOT=%q CONFIG_FILE=%q SERVER_IP=%q SAMPLE_INTERVAL_MS=%q ' \
+    "$REMOTE_WORKSPACE" "$REMOTE_BENCHMARK_DIR" "$REMOTE_BENCHMARK_DIR/data" "$REMOTE_RESULTS_ROOT" "$REMOTE_BENCHMARK_DIR/config/frameworks.json" "$SERVER_IP" "$SAMPLE_INTERVAL_MS"
 }
 
 remote_client_export_prefix() {
