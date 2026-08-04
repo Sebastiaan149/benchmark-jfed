@@ -561,6 +561,13 @@ async function main() {
   }
 
   fs.writeFileSync(path.join(runRoot, 'summary.json'), `${JSON.stringify(allSummaries, null, 2)}\n`);
+  const failureCount = allSummaries.reduce((total, summary) => total + summary.failures, 0);
+  if (failureCount > 0) {
+    throw new Error(
+      `${failureCount} query executions failed for ${framework} ${size} ${cacheMode} ` +
+      `c${totalConcurrency}; inspect the .err files under ${runRoot}.`,
+    );
+  }
 }
 
 main().catch((error) => {

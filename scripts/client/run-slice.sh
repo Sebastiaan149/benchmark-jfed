@@ -24,6 +24,21 @@ SERVER_RESOURCE_FILE="${SERVER_RESOURCE_FILE:-}"
 RETAIN_QUERY_OUTPUTS="${RETAIN_QUERY_OUTPUTS:-0}"
 KEEP_CLIENT_CACHES="${KEEP_CLIENT_CACHES:-0}"
 
+RUN_ROOT="$RESULTS_ROOT/$SIZE/$FRAMEWORK/$CACHE/c$TOTAL_CONCURRENCY"
+if [[ -n "$RUN_LABEL" ]]; then
+  RUN_ROOT="$RUN_ROOT/$RUN_LABEL"
+fi
+
+# Network namespaces require this script to run through sudo. Return the files
+# produced by the privileged workload to the controller user before the
+# unprivileged aggregation step reads and updates them.
+restore_result_ownership() {
+  if [[ "$(id -u)" -eq 0 && "${SUDO_UID:-}" =~ ^[0-9]+$ && "${SUDO_GID:-}" =~ ^[0-9]+$ && -e "$RUN_ROOT" ]]; then
+    chown -R "$SUDO_UID:$SUDO_GID" "$RUN_ROOT"
+  fi
+}
+trap restore_result_ownership EXIT
+
 if [[ -n "$NETNS_PREFIX" && "$(id -u)" -ne 0 ]]; then
   echo "NETNS_PREFIX requires root because ip netns exec needs elevated privileges. Re-run with sudo -E." >&2
   exit 1
