@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+SHARED_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SHARED_DIR/../.." && pwd)"
 CLUSTER_CONFIG="${CLUSTER_CONFIG:-$REPO_ROOT/config/cluster.env}"
 
 if [[ -f "$CLUSTER_CONFIG" ]]; then
