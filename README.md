@@ -154,6 +154,7 @@ The full profile uses:
 - Physical client capacities: `22 21 21`.
 - Per logical client: `0.15` CPU core, `896 MiB` RAM, and `20 Mbit/s`.
 - SmartKG, SmartKG+, and WiseKG: cold and warm cache runs.
+- Warm-cache queries run before server and network monitoring starts; only the following measured queries contribute metrics.
 - Other frameworks: cold cache runs.
 - One server process at a time, with the previous process fully stopped before the next starts.
 

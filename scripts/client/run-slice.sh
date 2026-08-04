@@ -23,6 +23,7 @@ CLIENT_MEMORY_MAX="${CLIENT_MEMORY_MAX:-}"
 SERVER_RESOURCE_FILE="${SERVER_RESOURCE_FILE:-}"
 RETAIN_QUERY_OUTPUTS="${RETAIN_QUERY_OUTPUTS:-0}"
 KEEP_CLIENT_CACHES="${KEEP_CLIENT_CACHES:-0}"
+WORKLOAD_PHASE="${WORKLOAD_PHASE:-both}"
 
 RUN_ROOT="$RESULTS_ROOT/$SIZE/$FRAMEWORK/$CACHE/c$TOTAL_CONCURRENCY"
 if [[ -n "$RUN_LABEL" ]]; then
@@ -107,6 +108,7 @@ node "$BENCHMARK_DIR/scripts/benchmark/run-benchmark.js" \
   --client-id-offset "$CLIENT_ID_OFFSET" \
   --retain-query-outputs "$RETAIN_QUERY_OUTPUTS" \
   --keep-client-caches "$KEEP_CLIENT_CACHES" \
+  --workload-phase "$WORKLOAD_PHASE" \
   ${RUN_LABEL:+--run-label "$RUN_LABEL"} \
   --source "$source_url" \
   "${port_arg[@]}" \

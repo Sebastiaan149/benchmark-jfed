@@ -354,6 +354,7 @@ run_local_client_slice() {
   local local_clients="$5"
   local offset="$6"
   local run_label="$7"
+  local workload_phase="$8"
 
   echo "==> Running local clients framework=$framework size=$size cache=$cache concurrency=$concurrency localClients=$local_clients offset=$offset"
   sudo -E env SERVER_IP="$SERVER_IP" \
@@ -372,6 +373,7 @@ run_local_client_slice() {
   CLIENT_CGROUP_ROOT="$CLIENT_CGROUP_ROOT" \
   RETAIN_QUERY_OUTPUTS="$RETAIN_QUERY_OUTPUTS" \
   KEEP_CLIENT_CACHES="$KEEP_CLIENT_CACHES" \
+  WORKLOAD_PHASE="$workload_phase" \
     "$SCRIPT_DIR/../client/run-slice.sh"
 }
 
@@ -384,10 +386,11 @@ run_remote_client_slice() {
   local concurrency="$6"
   local local_clients="$7"
   local offset="$8"
+  local workload_phase="$9"
 
   echo "==> Running remote clients node=$node label=$run_label framework=$framework size=$size cache=$cache concurrency=$concurrency localClients=$local_clients offset=$offset"
   remote_client "$node" \
-    "cd '$REMOTE_CLIENT_WORKSPACE' && sudo -E env $(remote_client_export_prefix) FRAMEWORK='$framework' SIZE='$size' CACHE='$cache' LOCAL_CLIENTS='$local_clients' TOTAL_CONCURRENCY='$concurrency' CLIENT_ID_OFFSET='$offset' RUN_LABEL='$run_label' ITERATIONS='$ITERATIONS' QUERY_LIMIT='$QUERY_LIMIT' ./benchmark-jfed/scripts/client/run-slice.sh"
+    "cd '$REMOTE_CLIENT_WORKSPACE' && sudo -E env $(remote_client_export_prefix) FRAMEWORK='$framework' SIZE='$size' CACHE='$cache' LOCAL_CLIENTS='$local_clients' TOTAL_CONCURRENCY='$concurrency' CLIENT_ID_OFFSET='$offset' RUN_LABEL='$run_label' ITERATIONS='$ITERATIONS' QUERY_LIMIT='$QUERY_LIMIT' WORKLOAD_PHASE='$workload_phase' ./benchmark-jfed/scripts/client/run-slice.sh"
 }
 
 run_client_workload() {
@@ -395,10 +398,11 @@ run_client_workload() {
   local size="$2"
   local cache="$3"
   local concurrency="$4"
+  local workload_phase="${5:-both}"
 
   if ! use_remote_clients; then
     run_local_client_slice "$framework" "$size" "$cache" "$concurrency" \
-      "${ACTIVE_LOCAL_CLIENTS[0]}" "${ACTIVE_CLIENT_OFFSETS[0]}" "${ACTIVE_RUN_LABELS[0]}"
+      "${ACTIVE_LOCAL_CLIENTS[0]}" "${ACTIVE_CLIENT_OFFSETS[0]}" "${ACTIVE_RUN_LABELS[0]}" "$workload_phase"
     return
   fi
 
@@ -406,10 +410,10 @@ run_client_workload() {
   for index in "${!ACTIVE_CLIENT_NODES[@]}"; do
     if [[ "${ACTIVE_CLIENT_NODES[$index]}" == "local" ]]; then
       run_local_client_slice "$framework" "$size" "$cache" "$concurrency" \
-        "${ACTIVE_LOCAL_CLIENTS[$index]}" "${ACTIVE_CLIENT_OFFSETS[$index]}" "${ACTIVE_RUN_LABELS[$index]}" &
+        "${ACTIVE_LOCAL_CLIENTS[$index]}" "${ACTIVE_CLIENT_OFFSETS[$index]}" "${ACTIVE_RUN_LABELS[$index]}" "$workload_phase" &
     else
       run_remote_client_slice "${ACTIVE_CLIENT_NODES[$index]}" "${ACTIVE_RUN_LABELS[$index]}" \
-        "$framework" "$size" "$cache" "$concurrency" "${ACTIVE_LOCAL_CLIENTS[$index]}" "${ACTIVE_CLIENT_OFFSETS[$index]}" &
+        "$framework" "$size" "$cache" "$concurrency" "${ACTIVE_LOCAL_CLIENTS[$index]}" "${ACTIVE_CLIENT_OFFSETS[$index]}" "$workload_phase" &
     fi
     pids+=("$!")
   done
@@ -480,10 +484,21 @@ for size in $SIZES; do
         fi
 
         prepare_client_distribution "$concurrency"
+        if [[ "$cache" == "warm" ]]; then
+          echo "==> Warming client and server caches before measurement"
+          if ! run_client_workload "$framework" "$size" "$cache" "$concurrency" warmup; then
+            echo "Warmup failed for framework=$framework size=$size concurrency=$concurrency" >&2
+            exit 1
+          fi
+        fi
         server_metrics_file="$(start_server_monitor "$framework" "$size" "$cache" "$concurrency")"
         start_client_monitors "$framework" "$size" "$cache" "$concurrency"
         set +e
-        run_client_workload "$framework" "$size" "$cache" "$concurrency"
+        if [[ "$cache" == "warm" ]]; then
+          run_client_workload "$framework" "$size" "$cache" "$concurrency" measured
+        else
+          run_client_workload "$framework" "$size" "$cache" "$concurrency" both
+        fi
         status=$?
         set -e
         stop_client_monitors

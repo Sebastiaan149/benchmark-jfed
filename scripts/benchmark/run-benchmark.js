@@ -309,6 +309,7 @@ async function runClient({
   clientMemoryMax,
   retainQueryOutputs,
   keepClientCaches,
+  workloadPhase,
 }) {
   const globalClientId = clientId + clientIdOffset;
   const clientDir = path.join(iterationDir, 'clients', `client-${globalClientId}`);
@@ -386,7 +387,10 @@ async function runClient({
     return rows;
   }
 
-  if (cacheMode === 'warm') {
+  if (workloadPhase === 'warmup') {
+    return runPass('warmup');
+  }
+  if (cacheMode === 'warm' && workloadPhase === 'both') {
     await runPass('warmup');
   }
   const rows = await runPass('measured');
@@ -427,8 +431,8 @@ function writeCsv(file, rows) {
   fs.writeFileSync(file, `${lines.join('\n')}\n`);
 }
 
-function summarize(rows) {
-  const measured = rows.filter(row => row.phase === 'measured');
+function summarize(rows, phase = 'measured') {
+  const measured = rows.filter(row => row.phase === phase);
   const totalTimeMs = measured.reduce((sum, row) => sum + row.timeMs, 0);
   const totalResults = measured.reduce((sum, row) => sum + row.results, 0);
   const failures = measured.filter(row => row.status !== 0 || row.timedOut).length;
@@ -521,6 +525,7 @@ async function main() {
     String(args['retain-query-outputs'] ?? config.resources.retainQueryOutputs ?? false).toLowerCase() === 'true';
   const keepClientCaches = String(args['keep-client-caches'] ?? config.resources.keepClientCaches ?? false) === '1' ||
     String(args['keep-client-caches'] ?? config.resources.keepClientCaches ?? false).toLowerCase() === 'true';
+  const workloadPhase = args['workload-phase'] || 'both';
 
   if (!framework || !size) {
     throw new Error('Usage: 03-run-benchmark.js --framework <name> --size <size> [--concurrency N] [--total-concurrency N] [--run-label label]');
@@ -531,6 +536,9 @@ async function main() {
   }
   if (frameworkConfig.unsupportedReason) {
     throw new Error(`${framework} is unsupported: ${frameworkConfig.unsupportedReason}`);
+  }
+  if (![ 'both', 'warmup', 'measured' ].includes(workloadPhase)) {
+    throw new Error(`Unsupported workload phase: ${workloadPhase}`);
   }
   const timeoutMs = Number(args.timeout || frameworkConfig.queryTimeoutSeconds ||
     config.resources.queryTimeoutSeconds) * 1_000;
@@ -545,7 +553,9 @@ async function main() {
   const source = (args.source || frameworkConfig.source).replaceAll('{port}', String(port));
   const runRootBase = path.join(resultsRoot, size, framework, cacheMode, `c${totalConcurrency}`);
   const runRoot = runLabel ? path.join(runRootBase, runLabel) : runRootBase;
-  resetRunDir(runRoot);
+  if (workloadPhase !== 'measured') {
+    resetRunDir(runRoot);
+  }
 
   const allSummaries = [];
   for (let iteration = 1; iteration <= iterations; iteration++) {
@@ -575,6 +585,7 @@ async function main() {
         clientMemoryMax,
         retainQueryOutputs,
         keepClientCaches,
+        workloadPhase,
       }));
     }
     const rows = (await Promise.all(clientPromises)).flat();
@@ -590,7 +601,7 @@ async function main() {
       iteration,
       wallTimeMs: Date.now() - started,
       source,
-      ...summarize(rows),
+      ...summarize(rows, workloadPhase === 'warmup' ? 'warmup' : 'measured'),
       ...readServerResourceSummary(serverResourceFile),
     };
     fs.writeFileSync(path.join(iterationDir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
