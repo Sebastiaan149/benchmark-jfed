@@ -50,6 +50,7 @@
       "server": "passage-server",
       "engine": "query-passage",
       "source": "passage@http://localhost:{port}/data/passage",
+      "healthPath": "/$/ping",
       "cacheModes": ["cold"],
       "requires": ["passage/local-data.properties", "passage/dataset.jnl"]
     },

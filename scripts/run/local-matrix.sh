@@ -38,8 +38,7 @@ wait_for_server() {
   local framework="$1"
   local port="$2"
   local url
-  url="$(framework_source "$framework" "$port")"
-  url="${url#*@}"
+  url="$(node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); const f=c.frameworks[process.argv[2]]; if (f.healthPath) { console.log('http://localhost:' + process.argv[3] + f.healthPath); } else { const s=f.source.replaceAll('{port}', process.argv[3]); console.log(s.includes('@') ? s.split('@').pop() : s); }" "$CONFIG_FILE" "$framework" "$port")"
   for _ in $(seq 1 "$SERVER_STARTUP_SECONDS"); do
     if curl -fsS -I "$url" >/dev/null 2>&1 || curl -fsS "$url" >/dev/null 2>&1; then
       return

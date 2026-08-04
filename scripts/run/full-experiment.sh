@@ -129,7 +129,7 @@ framework_port() {
 framework_source_url() {
   local framework="$1"
   local port="$2"
-  node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); const s=c.frameworks[process.argv[2]].source.replaceAll('localhost', process.argv[3]).replaceAll('{port}', process.argv[4]); console.log(s.includes('@') ? s.split('@').pop() : s)" \
+  node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); const f=c.frameworks[process.argv[2]]; if (f.healthPath) { console.log('http://' + process.argv[3] + ':' + process.argv[4] + f.healthPath); } else { const s=f.source.replaceAll('localhost', process.argv[3]).replaceAll('{port}', process.argv[4]); console.log(s.includes('@') ? s.split('@').pop() : s); }" \
     "$CONFIG_FILE" "$framework" "$SERVER_IP" "$port"
 }
 
