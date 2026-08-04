@@ -50,7 +50,8 @@ case "$ROLE" in
   client)
     build_comunica
     echo "==> Installing the dedicated Comunica HDT client"
-    (cd "$BENCHMARK_DIR" && npm ci --omit=dev --no-audit --no-fund)
+    mkdir -p "$TMP_ROOT/npm-cache"
+    (cd "$BENCHMARK_DIR" && npm_config_cache="$TMP_ROOT/npm-cache" npm ci --omit=dev --no-audit --no-fund)
     ;;
   *)
     echo "Usage: ROLE=server|client $0" >&2

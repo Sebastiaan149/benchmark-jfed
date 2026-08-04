@@ -57,7 +57,7 @@ esac
 
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
-sudo npm install -g yarn@1.22.22
+sudo -H npm install -g yarn@1.22.22
 
 node --version
 yarn --version
