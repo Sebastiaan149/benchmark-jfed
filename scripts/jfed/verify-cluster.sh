@@ -21,10 +21,11 @@ for ip_address in "$SERVER_IP" "${client_ips[@]:1}"; do
   ping -c 2 "$ip_address"
 done
 
-node -e "require.resolve('@comunica/query-sparql-hdt'); console.log('client0 Comunica HDT client OK')"
+node -e "require.resolve('@comunica/query-sparql-hdt', { paths: [ process.argv[1] ] }); console.log('client0 Comunica HDT client OK')" \
+  "$BENCHMARK_DIR"
 for target in "${remote_clients[@]}"; do
   ssh -o BatchMode=yes "$target" \
-    "cd '$REMOTE_CLIENT_BENCHMARK_DIR' && node -e \"require.resolve('@comunica/query-sparql-hdt'); console.log('remote Comunica HDT client OK')\""
+    "node -e \"require.resolve('@comunica/query-sparql-hdt', { paths: [ process.argv[1] ] }); console.log('remote Comunica HDT client OK')\" '$REMOTE_CLIENT_BENCHMARK_DIR'"
 done
 
 ssh -o BatchMode=yes "$SERVER_SSH" \
