@@ -63,13 +63,13 @@ else
   concurrent_results="$profile_results/concurrent-limited"
   rm -rf "$single_results" "$concurrent_results"
 
-  echo "==> Full benchmark 1/2: one unlimited client, five queries, three iterations"
+  echo "==> Full benchmark 1/2: one unlimited client, 100 queries, three iterations"
   RESULTS_ROOT="$single_results" \
   REMOTE_RESULTS_ROOT="$REMOTE_BENCHMARK_DIR/watdiv-results/full/single-unlimited" \
   REMOTE_CLIENT_RESULTS_ROOT="$REMOTE_CLIENT_BENCHMARK_DIR/watdiv-results/full/single-unlimited" \
   CONCURRENCY="1" \
   ITERATIONS="3" \
-  QUERY_SELECTION="five" \
+  QUERY_SELECTION="hundred" \
   CLIENT_CPU_MAX="max" \
   CLIENT_MEMORY_MAX="max" \
   CLIENT_NODE_OPTIONS="--max-old-space-size=57344" \

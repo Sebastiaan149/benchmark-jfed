@@ -11,6 +11,10 @@
   "queryRecurrence": 1,
   "defaultQuerySelection": "five",
   "querySelections": {
+    "hundred": {
+      "allTemplates": true,
+      "repetitions": 5
+    },
     "five": [
       { "template": "C1", "instance": 1 },
       { "template": "F1", "instance": 1 },

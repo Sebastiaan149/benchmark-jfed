@@ -56,6 +56,14 @@ function loadQueries(dir, selection = []) {
       .filter(Boolean)
       .map((query, index) => ({ file, instance: index + 1, query })));
 
+  if (selection?.allTemplates) {
+    const repetitions = Number(selection.repetitions || 1);
+    if (!Number.isInteger(repetitions) || repetitions < 1) {
+      throw new Error(`Invalid query selection repetition count: ${selection.repetitions}`);
+    }
+    return Array.from({ length: repetitions }, () => queries).flat();
+  }
+
   if (selection.length === 0) {
     return queries;
   }
@@ -542,7 +550,7 @@ async function main() {
     throw new Error(`Unsupported workload phase: ${workloadPhase}`);
   }
   const querySelection = config.querySelections?.[querySelectionName];
-  if (!Array.isArray(querySelection) || querySelection.length === 0) {
+  if ((!Array.isArray(querySelection) || querySelection.length === 0) && !querySelection?.allTemplates) {
     throw new Error(`Unknown or empty query selection: ${querySelectionName}`);
   }
   const timeoutMs = Number(args.timeout || frameworkConfig.queryTimeoutSeconds ||
