@@ -49,6 +49,10 @@ for (const values of iterations.values()) {
     cacheMode: first.cacheMode,
     concurrency: first.concurrency,
     iteration: first.iteration,
+    querySelection: first.querySelection || '',
+    queryCount: Number(first.queryCount || 0),
+    clientCpuMax: first.clientCpuMax || '',
+    clientMemoryMax: first.clientMemoryMax || '',
     clientNodeCount: values.length,
     wallTimeMs: Math.max(...values.map(value => Number(value.wallTimeMs || 0))),
     queryInvocations: values.reduce((sum, value) => sum + Number(value.queryInvocations || 0), 0),
@@ -77,7 +81,8 @@ for (const summary of mergedIterations) {
 }
 
 const columns = [
-  'size', 'framework', 'cacheMode', 'concurrency', 'iterations', 'clientNodeCount',
+  'size', 'framework', 'cacheMode', 'concurrency', 'iterations', 'querySelection', 'queryCount',
+  'clientCpuMax', 'clientMemoryMax', 'clientNodeCount',
   'avgWallTimeMs', 'avgQueryTimeMs', 'avgFirstResultTimeMs', 'avgResultThroughputPerSec',
   'avgFailures', 'avgTotalResults', 'clientAvgCpuPercent', 'clientMaxCpuPercent',
   'clientAvgRssMb', 'clientMaxRssMb', 'serverAvgCpuPercent', 'serverMaxCpuPercent',
@@ -90,6 +95,10 @@ for (const [ key, values ] of [ ...groups ].sort()) {
   lines.push([
     key,
     values.length,
+    values[0].querySelection,
+    values[0].queryCount,
+    values[0].clientCpuMax,
+    values[0].clientMemoryMax,
     max('clientNodeCount'),
     Math.round(avg('wallTimeMs')),
     Math.round(avg('averageTimeMs')),

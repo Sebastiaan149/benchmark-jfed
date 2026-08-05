@@ -10,5 +10,6 @@ FRAMEWORKS="${FRAMEWORKS:-smartkg smartkg-plus wisekg passage spf ldf-endpoint l
 CONCURRENCY="${CONCURRENCY:-1}" \
 ITERATIONS="${ITERATIONS:-1}" \
 QUERY_LIMIT="${QUERY_LIMIT:-0}" \
+QUERY_SELECTION="${QUERY_SELECTION:-five}" \
 RESTART_SERVER_PER_RUN=1 \
   "$SCRIPT_DIR/../run/full-experiment.sh"

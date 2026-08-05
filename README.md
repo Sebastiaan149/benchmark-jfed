@@ -66,12 +66,12 @@ This command:
 - Clones and builds Comunica on the three client nodes.
 - Verifies six CPU cores, at least 60 GB RAM, cgroup v2, required commands, LAN reachability, Comunica HDT support, Java, Maven, and Docker.
 
-To deploy later benchmark-script changes, run on `client0`:
+To synchronize later benchmark-script changes without reinstalling repositories, run on `client0`:
 
 ```bash
 cd /local/masterproef_repos/benchmark-jfed
 git pull --ff-only
-./scripts/jfed/deploy-cluster.sh
+./scripts/jfed/sync-benchmark.sh
 ```
 
 If a previous build left modified or generated files in one of the cloned repositories, perform a clean workspace reinstall. This removes all repositories, prepared data, logs, and results under `/local/masterproef_repos`, but keeps the controller SSH key in `~/.ssh`.
@@ -145,14 +145,25 @@ Run the full benchmark:
 ./scripts/jfed/run-profile.sh full
 ```
 
-The full profile uses:
+The full profile removes earlier `full/` results and then runs two benchmarks over `1m 10m 50m 100m`. Both include the existing query timing, result count, client/server CPU and RAM, and per-client network measurements.
 
-- Dataset sizes: `1m 10m 50m 100m`.
+The first benchmark writes to `watdiv-results/full/single-unlimited/`:
+
+- One logical client on `client0`.
+- Three iterations.
+- Five queries per iteration: `C1`, `F1`, `L1`, `S1`, and `S7` (instance 1).
+- No client CPU or cgroup RAM limit; the client may use all six cores and available memory.
+
+The second benchmark writes to `watdiv-results/full/concurrent-limited/`:
+
 - Concurrency: `1 2 4 8 16 32 64`.
-- Iterations: `1`.
-- Queries per client and iteration: `5` (`C1`, `F1`, `L1`, `S1`, and `S7`, instance 1). WatDiv has four shape classes (`C`, `F`, `L`, and `S`), so `S7` adds a second star-query selectivity case.
+- One iteration.
+- Ten queries per client: `C1`, `C2`, `F1`, `F2`, `L1`, `L2`, `S1`, `S2`, `S6`, and `S7` (instance 1).
 - Physical client capacities: `22 21 21`.
 - Per logical client: `0.15` CPU core, `896 MiB` RAM, and `20 Mbit/s`.
+
+For both benchmarks:
+
 - SmartKG, SmartKG+, and WiseKG: cold and warm cache runs.
 - Warm-cache queries run before server and network monitoring starts; only the following measured queries contribute metrics.
 - Other frameworks: cold cache runs.
@@ -186,7 +197,9 @@ The server preparation pipeline generates WatDiv NT, dataset HDT and index, char
 All results remain under `benchmark-jfed/watdiv-results/` on `client0`:
 
 - `smoke-1m/`: one-client validation results.
-- `full/`: complete benchmark results.
+- `full/single-unlimited/`: three-iteration unrestricted single-client results.
+- `full/concurrent-limited/`: one-iteration limited concurrency-matrix results.
+- `full/combined-*.csv`: analysis tables combining both full benchmarks with a `benchmark` column.
 - `query-times.csv`: time to first result, complete response time, result count, process-tree CPU, and RSS.
 - `client-netns.csv`: RX/TX bytes and packet counters for each logical client.
 - `server-metrics/`: server process-tree CPU and RAM samples.

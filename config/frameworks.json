@@ -9,13 +9,28 @@
   "defaultIterations": 1,
   "queryCount": 1,
   "queryRecurrence": 1,
-  "querySelection": [
-    { "template": "C1", "instance": 1 },
-    { "template": "F1", "instance": 1 },
-    { "template": "L1", "instance": 1 },
-    { "template": "S1", "instance": 1 },
-    { "template": "S7", "instance": 1 }
-  ],
+  "defaultQuerySelection": "five",
+  "querySelections": {
+    "five": [
+      { "template": "C1", "instance": 1 },
+      { "template": "F1", "instance": 1 },
+      { "template": "L1", "instance": 1 },
+      { "template": "S1", "instance": 1 },
+      { "template": "S7", "instance": 1 }
+    ],
+    "ten": [
+      { "template": "C1", "instance": 1 },
+      { "template": "C2", "instance": 1 },
+      { "template": "F1", "instance": 1 },
+      { "template": "F2", "instance": 1 },
+      { "template": "L1", "instance": 1 },
+      { "template": "L2", "instance": 1 },
+      { "template": "S1", "instance": 1 },
+      { "template": "S2", "instance": 1 },
+      { "template": "S6", "instance": 1 },
+      { "template": "S7", "instance": 1 }
+    ]
+  },
   "resources": {
     "workers": 6,
     "javaXms": "8g",

@@ -526,6 +526,7 @@ async function main() {
   const keepClientCaches = String(args['keep-client-caches'] ?? config.resources.keepClientCaches ?? false) === '1' ||
     String(args['keep-client-caches'] ?? config.resources.keepClientCaches ?? false).toLowerCase() === 'true';
   const workloadPhase = args['workload-phase'] || 'both';
+  const querySelectionName = args['query-selection'] || config.defaultQuerySelection;
 
   if (!framework || !size) {
     throw new Error('Usage: 03-run-benchmark.js --framework <name> --size <size> [--concurrency N] [--total-concurrency N] [--run-label label]');
@@ -540,11 +541,15 @@ async function main() {
   if (![ 'both', 'warmup', 'measured' ].includes(workloadPhase)) {
     throw new Error(`Unsupported workload phase: ${workloadPhase}`);
   }
+  const querySelection = config.querySelections?.[querySelectionName];
+  if (!Array.isArray(querySelection) || querySelection.length === 0) {
+    throw new Error(`Unknown or empty query selection: ${querySelectionName}`);
+  }
   const timeoutMs = Number(args.timeout || frameworkConfig.queryTimeoutSeconds ||
     config.resources.queryTimeoutSeconds) * 1_000;
   const dataDir = path.join(dataRoot, size);
   const queriesDir = path.join(dataDir, 'queries');
-  const queries = loadQueries(queriesDir, config.querySelection);
+  const queries = loadQueries(queriesDir, querySelection);
   if (queries.length === 0) {
     throw new Error(`No .txt queries found in ${queriesDir}`);
   }
@@ -601,6 +606,10 @@ async function main() {
       iteration,
       wallTimeMs: Date.now() - started,
       source,
+      querySelection: querySelectionName,
+      queryCount: queries.length,
+      clientCpuMax: clientCpuMax || '',
+      clientMemoryMax: clientMemoryMax || '',
       ...summarize(rows, workloadPhase === 'warmup' ? 'warmup' : 'measured'),
       ...readServerResourceSummary(serverResourceFile),
     };

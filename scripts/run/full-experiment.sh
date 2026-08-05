@@ -37,6 +37,7 @@ FRAMEWORKS="${FRAMEWORKS:-smartkg smartkg-plus wisekg passage spf ldf-endpoint l
 CONCURRENCY="${CONCURRENCY:-1 2 4 8 16 32 64}"
 ITERATIONS="${ITERATIONS:-1}"
 QUERY_LIMIT="${QUERY_LIMIT:-0}"
+QUERY_SELECTION="${QUERY_SELECTION:-five}"
 CACHE_MODES="${CACHE_MODES:-auto}"
 
 # Logical-client controls. These allow one physical client node to run many
@@ -48,6 +49,7 @@ CLIENT_ID_OFFSET="${CLIENT_ID_OFFSET:-0}"
 NETNS_PREFIX="${NETNS_PREFIX:-bench-c}"
 CLIENT_CPU_MAX="${CLIENT_CPU_MAX:-}"
 CLIENT_MEMORY_MAX="${CLIENT_MEMORY_MAX:-}"
+CLIENT_NODE_OPTIONS="${CLIENT_NODE_OPTIONS:-}"
 CLIENT_CGROUP_ROOT="${CLIENT_CGROUP_ROOT:-/sys/fs/cgroup/watdiv-clients}"
 CLIENT_SSHS="${CLIENT_SSHS:-}"
 ENABLE_CLIENT_NETNS_MONITOR="${ENABLE_CLIENT_NETNS_MONITOR:-1}"
@@ -367,6 +369,7 @@ run_local_client_slice() {
   RUN_LABEL="$run_label" \
   ITERATIONS="$ITERATIONS" \
   QUERY_LIMIT="$QUERY_LIMIT" \
+  QUERY_SELECTION="$QUERY_SELECTION" \
   NETNS_PREFIX="$NETNS_PREFIX" \
   CLIENT_CPU_MAX="$CLIENT_CPU_MAX" \
   CLIENT_MEMORY_MAX="$CLIENT_MEMORY_MAX" \
@@ -374,6 +377,7 @@ run_local_client_slice() {
   RETAIN_QUERY_OUTPUTS="$RETAIN_QUERY_OUTPUTS" \
   KEEP_CLIENT_CACHES="$KEEP_CLIENT_CACHES" \
   WORKLOAD_PHASE="$workload_phase" \
+  CLIENT_NODE_OPTIONS="$CLIENT_NODE_OPTIONS" \
     "$SCRIPT_DIR/../client/run-slice.sh"
 }
 
@@ -390,7 +394,7 @@ run_remote_client_slice() {
 
   echo "==> Running remote clients node=$node label=$run_label framework=$framework size=$size cache=$cache concurrency=$concurrency localClients=$local_clients offset=$offset"
   remote_client "$node" \
-    "cd '$REMOTE_CLIENT_WORKSPACE' && sudo -E env $(remote_client_export_prefix) FRAMEWORK='$framework' SIZE='$size' CACHE='$cache' LOCAL_CLIENTS='$local_clients' TOTAL_CONCURRENCY='$concurrency' CLIENT_ID_OFFSET='$offset' RUN_LABEL='$run_label' ITERATIONS='$ITERATIONS' QUERY_LIMIT='$QUERY_LIMIT' WORKLOAD_PHASE='$workload_phase' ./benchmark-jfed/scripts/client/run-slice.sh"
+    "cd '$REMOTE_CLIENT_WORKSPACE' && sudo -E env $(remote_client_export_prefix) FRAMEWORK='$framework' SIZE='$size' CACHE='$cache' LOCAL_CLIENTS='$local_clients' TOTAL_CONCURRENCY='$concurrency' CLIENT_ID_OFFSET='$offset' RUN_LABEL='$run_label' ITERATIONS='$ITERATIONS' QUERY_LIMIT='$QUERY_LIMIT' QUERY_SELECTION='$QUERY_SELECTION' WORKLOAD_PHASE='$workload_phase' CLIENT_NODE_OPTIONS='$CLIENT_NODE_OPTIONS' ./benchmark-jfed/scripts/client/run-slice.sh"
 }
 
 run_client_workload() {

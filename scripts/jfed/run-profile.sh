@@ -19,7 +19,6 @@ case "$PROFILE" in
     ;;
   full)
     sizes="1m 10m 50m 100m"
-    run_script="$SCRIPT_DIR/run-full.sh"
     profile_results="$BENCHMARK_DIR/watdiv-results/full"
     ;;
   *)
@@ -43,13 +42,47 @@ if [[ "$PROFILE" == "smoke-1m" ]]; then
     NAMESPACE_LATENCY_MS="$NAMESPACE_LATENCY_MS" \
       "$SCRIPT_DIR/../client/setup-netns.sh"
 else
+  echo "==> Removing incomplete or previous full-profile results"
+  rm -rf "$profile_results"
+  ssh -o BatchMode=yes "$SERVER_SSH" "rm -rf '$REMOTE_BENCHMARK_DIR/watdiv-results/full'"
+  read -r -a remote_clients <<< "$CLIENT_SSHS"
+  for node in "${remote_clients[@]}"; do
+    ssh -o BatchMode=yes "$node" "rm -rf '$REMOTE_CLIENT_BENCHMARK_DIR/watdiv-results/full'"
+  done
   SIZES="$sizes" "$SCRIPT_DIR/prepare-clients.sh"
   RESULTS_ROOT="$profile_results" "$SCRIPT_DIR/calibrate-network.sh"
 fi
 
-RESULTS_ROOT="$profile_results" \
-REMOTE_RESULTS_ROOT="$REMOTE_BENCHMARK_DIR/watdiv-results/$PROFILE" \
-REMOTE_CLIENT_RESULTS_ROOT="$REMOTE_CLIENT_BENCHMARK_DIR/watdiv-results/$PROFILE" \
-  "$run_script"
+if [[ "$PROFILE" == "smoke-1m" ]]; then
+  RESULTS_ROOT="$profile_results" \
+  REMOTE_RESULTS_ROOT="$REMOTE_BENCHMARK_DIR/watdiv-results/$PROFILE" \
+  REMOTE_CLIENT_RESULTS_ROOT="$REMOTE_CLIENT_BENCHMARK_DIR/watdiv-results/$PROFILE" \
+    "$run_script"
+else
+  single_results="$profile_results/single-unlimited"
+  concurrent_results="$profile_results/concurrent-limited"
+  rm -rf "$single_results" "$concurrent_results"
+
+  echo "==> Full benchmark 1/2: one unlimited client, five queries, three iterations"
+  RESULTS_ROOT="$single_results" \
+  REMOTE_RESULTS_ROOT="$REMOTE_BENCHMARK_DIR/watdiv-results/full/single-unlimited" \
+  REMOTE_CLIENT_RESULTS_ROOT="$REMOTE_CLIENT_BENCHMARK_DIR/watdiv-results/full/single-unlimited" \
+  CONCURRENCY="1" \
+  ITERATIONS="3" \
+  QUERY_SELECTION="five" \
+  CLIENT_CPU_MAX="max" \
+  CLIENT_MEMORY_MAX="max" \
+  CLIENT_NODE_OPTIONS="--max-old-space-size=57344" \
+    "$SCRIPT_DIR/run-full.sh"
+
+  echo "==> Full benchmark 2/2: limited clients, ten queries, one iteration"
+  RESULTS_ROOT="$concurrent_results" \
+  REMOTE_RESULTS_ROOT="$REMOTE_BENCHMARK_DIR/watdiv-results/full/concurrent-limited" \
+  REMOTE_CLIENT_RESULTS_ROOT="$REMOTE_CLIENT_BENCHMARK_DIR/watdiv-results/full/concurrent-limited" \
+  CONCURRENCY="1 2 4 8 16 32 64" \
+  ITERATIONS="1" \
+  QUERY_SELECTION="ten" \
+    "$SCRIPT_DIR/run-full.sh"
+fi
 
 echo "Benchmark profile $PROFILE complete: $profile_results"
