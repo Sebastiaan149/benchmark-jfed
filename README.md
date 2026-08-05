@@ -153,6 +153,7 @@ The first benchmark writes to `watdiv-results/full/single-unlimited/`:
 - Three iterations.
 - 100 queries per iteration: all 20 WatDiv templates repeated five times.
 - No client CPU or cgroup RAM limit; the client may use all six cores and available memory.
+- The logical client link is limited to `100 Mbit/s`.
 
 The second benchmark writes to `watdiv-results/full/concurrent-limited/`:
 

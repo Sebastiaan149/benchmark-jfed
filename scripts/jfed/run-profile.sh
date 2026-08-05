@@ -63,7 +63,22 @@ else
   concurrent_results="$profile_results/concurrent-limited"
   rm -rf "$single_results" "$concurrent_results"
 
-  echo "==> Full benchmark 1/2: one unlimited client, 100 queries, three iterations"
+  echo "==> Configuring the unlimited client at 100 Mbit/s"
+  sudo -E env \
+    WORKSPACE_ROOT="$WORKSPACE_ROOT" \
+    BENCHMARK_DIR="$BENCHMARK_DIR" \
+    COUNT=1 \
+    MAX_CLIENTS_PER_NODE="${CLIENT_NODE_CAPACITIES%% *}" \
+    CLIENT_ID_OFFSET=0 \
+    NODE_INDEX=0 \
+    SERVER_IP="$SERVER_IP" \
+    NETNS_PREFIX="$NETNS_PREFIX" \
+    CLIENT_SUBNET_PREFIX="$CLIENT_SUBNET_PREFIX" \
+    CLIENT_RATE="100mbit" \
+    NAMESPACE_LATENCY_MS="$NAMESPACE_LATENCY_MS" \
+      "$SCRIPT_DIR/../client/setup-netns.sh"
+
+  echo "==> Full benchmark 1/2: one unlimited client, 100 queries, three iterations, 100 Mbit/s"
   RESULTS_ROOT="$single_results" \
   REMOTE_RESULTS_ROOT="$REMOTE_BENCHMARK_DIR/watdiv-results/full/single-unlimited" \
   REMOTE_CLIENT_RESULTS_ROOT="$REMOTE_CLIENT_BENCHMARK_DIR/watdiv-results/full/single-unlimited" \
@@ -74,6 +89,9 @@ else
   CLIENT_MEMORY_MAX="max" \
   CLIENT_NODE_OPTIONS="--max-old-space-size=57344" \
     "$SCRIPT_DIR/run-full.sh"
+
+  echo "==> Restoring all logical clients at $CLIENT_RATE before the concurrency benchmark"
+  TOTAL_CLIENTS="$TOTAL_CLIENTS" CLIENT_RATE="$CLIENT_RATE" "$SCRIPT_DIR/../client/setup-cluster.sh"
 
   echo "==> Full benchmark 2/2: limited clients, ten queries, one iteration"
   RESULTS_ROOT="$concurrent_results" \
