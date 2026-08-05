@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import json
 from pathlib import Path
 
 import matplotlib
@@ -26,6 +27,24 @@ def main() -> None:
     averages = pd.read_csv(averages_file, sep=";")
     network = pd.read_csv(network_file, sep=";")
     network_clients = pd.read_csv(clients_file, sep=";")
+    dataset_rows = []
+    for size in sorted(averages["size"].unique()):
+        manifest_path = args.benchmark_dir / "data" / size / "manifest.json"
+        if not manifest_path.is_file():
+            raise FileNotFoundError(manifest_path)
+        manifest = json.loads(manifest_path.read_text())
+        required = ("triples", "regularPartitions", "typedPartitions")
+        missing = [field for field in required if field not in manifest]
+        if missing:
+            raise ValueError(f"Missing dataset statistics {missing} in {manifest_path}; prepare the dataset again")
+        dataset_rows.append({
+            "size": size,
+            "triples": manifest["triples"],
+            "regularPartitions": manifest["regularPartitions"],
+            "typedPartitions": manifest["typedPartitions"],
+        })
+    dataset_statistics = pd.DataFrame(dataset_rows)
+    dataset_statistics.to_csv(results_root / "dataset-statistics.csv", index=False)
     plot_dir = results_root / "plots"
     plot_dir.mkdir(exist_ok=True)
 
@@ -62,11 +81,12 @@ def main() -> None:
         "serverAvgCpuPercent",
         "serverAvgRssMb",
     ]
-    averages[summary_columns].sort_values(
+    averages[summary_columns].merge(dataset_statistics, on="size", how="left").sort_values(
         ["size", "framework", "cacheMode", "concurrency"],
     ).to_csv(results_root / "report-summary.csv", index=False)
 
     print(f"Rows: averages={len(averages)}, network={len(network)}, clients={len(network_clients)}")
+    print(f"Datasets: {results_root / 'dataset-statistics.csv'}")
     print(f"Plots: {plot_dir}")
     print(f"Summary: {results_root / 'report-summary.csv'}")
 

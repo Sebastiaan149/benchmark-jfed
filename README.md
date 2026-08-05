@@ -193,6 +193,7 @@ All results remain under `benchmark-jfed/watdiv-results/` on `client0`:
 - `averages.csv`: iteration-level aggregates.
 - `network-averages.csv`: aggregate bytes, packets, and throughput.
 - `network-clients.csv`: network measurements per logical client.
+- `dataset-statistics.csv`: triple, regular-partition, and typed-partition counts per dataset size.
 - `plots/` and `report-summary.csv`: terminal-generated analysis output.
 
 The scripts use monotonic Node.js timing, process-tree sampling, cgroup v2, network namespaces, interface counters, `tc`, `iptables`, `iperf3`, `sysstat`, and `tcpdump`.

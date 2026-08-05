@@ -373,6 +373,30 @@ EOF
     > "$LOG_ROOT/passage-load-$size.log" 2>&1
 }
 
+record_dataset_statistics() {
+  local data_dir="$1"
+  local manifest="$data_dir/manifest.json"
+  require_file "$manifest"
+  require_dir "$data_dir/partitioning/hdt"
+  require_dir "$data_dir/typed-partitioning/hdt"
+
+  local triples regular_partitions typed_partitions
+  triples="$(wc -l < "$data_dir/dataset.nt" | tr -d ' ')"
+  regular_partitions="$(find "$data_dir/partitioning/hdt" -maxdepth 1 -type f -name '*.hdt' | wc -l | tr -d ' ')"
+  typed_partitions="$(find "$data_dir/typed-partitioning/hdt" -maxdepth 1 -type f -name '*.hdt' | wc -l | tr -d ' ')"
+
+  node - "$manifest" "$triples" "$regular_partitions" "$typed_partitions" <<'NODE'
+const fs = require('fs');
+const [ manifestPath, triples, regularPartitions, typedPartitions ] = process.argv.slice(2);
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+manifest.triples = Number(triples);
+manifest.regularPartitions = Number(regularPartitions);
+manifest.typedPartitions = Number(typedPartitions);
+fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+NODE
+  echo "Dataset statistics: triples=$triples regularPartitions=$regular_partitions typedPartitions=$typed_partitions"
+}
+
 for size in $SIZES; do
   data_dir="$(size_dir "$size")"
   require_file "$data_dir/dataset.nt"
@@ -397,4 +421,6 @@ for size in $SIZES; do
     echo "==> Preparing Passage Blazegraph journal for $size"
     prepare_passage "$size" "$data_dir"
   fi
+
+  record_dataset_statistics "$data_dir"
 done
