@@ -43,11 +43,11 @@ if [[ "$PROFILE" == "smoke-1m" ]]; then
       "$SCRIPT_DIR/../client/setup-netns.sh"
 else
   echo "==> Removing incomplete or previous full-profile results"
-  rm -rf "$profile_results"
-  ssh -o BatchMode=yes "$SERVER_SSH" "rm -rf '$REMOTE_BENCHMARK_DIR/watdiv-results/full'"
+  sudo rm -rf "$profile_results"
+  ssh -o BatchMode=yes "$SERVER_SSH" "sudo rm -rf '$REMOTE_BENCHMARK_DIR/watdiv-results/full'"
   read -r -a remote_clients <<< "$CLIENT_SSHS"
   for node in "${remote_clients[@]}"; do
-    ssh -o BatchMode=yes "$node" "rm -rf '$REMOTE_CLIENT_BENCHMARK_DIR/watdiv-results/full'"
+    ssh -o BatchMode=yes "$node" "sudo rm -rf '$REMOTE_CLIENT_BENCHMARK_DIR/watdiv-results/full'"
   done
   SIZES="$sizes" "$SCRIPT_DIR/prepare-clients.sh"
   RESULTS_ROOT="$profile_results" "$SCRIPT_DIR/calibrate-network.sh"
@@ -61,7 +61,7 @@ if [[ "$PROFILE" == "smoke-1m" ]]; then
 else
   single_results="$profile_results/single-unlimited"
   concurrent_results="$profile_results/concurrent-limited"
-  rm -rf "$single_results" "$concurrent_results"
+  sudo rm -rf "$single_results" "$concurrent_results"
 
   echo "==> Configuring the unlimited client at 100 Mbit/s"
   sudo -E env \
