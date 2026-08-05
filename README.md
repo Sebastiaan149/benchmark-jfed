@@ -175,7 +175,7 @@ The server preparation pipeline generates WatDiv NT, dataset HDT and index, char
 
 - SmartKG and WiseKG use `partitioning/`.
 - SmartKG+ uses `typed-partitioning/`.
-- Partition `.nt` files are deleted after HDT conversion and validation.
+- Each partition `.nt` file is deleted after its indexed HDT conversion succeeds; complete metadata validation follows conversion.
 - `dataset.nt` remains for endpoint serving, class extraction, and Passage preparation.
 - There is no NT-dump benchmark; local dump querying uses HDT.
 - Preparation requires at least 350 GiB free before starting 100M.

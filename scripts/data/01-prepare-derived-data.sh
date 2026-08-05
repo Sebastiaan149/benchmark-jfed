@@ -48,9 +48,17 @@ convert_nt_dir_to_hdt() {
   find "$nt_dir" -maxdepth 1 -type f -name '*.nt' -print0 | while IFS= read -r -d '' nt_file; do
     local base
     base="$(basename "$nt_file" .nt)"
-    if [[ ! -f "$hdt_dir/$base.hdt" || "${FORCE_HDT:-0}" == "1" ]]; then
-      "$RDF2HDT" -i -f nt -B "http://watdiv.example/partition/" "$nt_file" "$hdt_dir/$base.hdt" \
+    local hdt_file="$hdt_dir/$base.hdt"
+    local index_file="$hdt_file.index.v1-1"
+    if [[ ! -f "$hdt_file" || ! -f "$index_file" || "${FORCE_HDT:-0}" == "1" ]]; then
+      rm -f "$hdt_file" "$index_file"
+      "$RDF2HDT" -i -f nt -B "http://watdiv.example/partition/" "$nt_file" "$hdt_file" \
         >> "$LOG_ROOT/partition-rdf2hdt.log" 2>&1
+    fi
+    require_file "$hdt_file"
+    require_file "$index_file"
+    if [[ "$DELETE_PARTITION_NT" == "1" ]]; then
+      rm -f "$nt_file"
     fi
   done
 }
