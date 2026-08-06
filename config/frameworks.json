@@ -11,6 +11,9 @@
   "queryRecurrence": 1,
   "defaultQuerySelection": "five",
   "querySelections": {
+    "c3": [
+      { "template": "C3", "instance": 1 }
+    ],
     "hundred": {
       "allTemplates": true,
       "repetitions": 5
@@ -69,6 +72,7 @@
       "engine": "query-sparql-wisekg",
       "source": "wisekg@http://localhost:{port}/wisekg",
       "cacheModes": ["cold", "warm"],
+      "queryTimeoutSeconds": 1800,
       "requires": ["dataset.hdt", "dataset.hdt.cs", "partitioning/metadata.json", "partitioning/hdt"]
     },
     "passage": {
