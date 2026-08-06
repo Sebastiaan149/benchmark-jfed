@@ -44,7 +44,7 @@
     "javaXmx": "56g",
     "clientNodeMaxOldSpaceSizeMb": 768,
     "serverNodeMaxOldSpaceSizeMb": 57344,
-    "queryTimeoutSeconds": 300,
+    "queryTimeoutSeconds": 1800,
     "sampleIntervalMs": 1000,
     "retainQueryOutputs": false,
     "keepClientCaches": false
@@ -90,6 +90,7 @@
       "engine": "query-sparql-spf",
       "source": "spf@http://localhost:{port}/spf",
       "cacheModes": ["cold"],
+      "queryTimeoutSeconds": 1800,
       "requires": ["dataset.hdt"]
     },
     "ldf-endpoint": {
