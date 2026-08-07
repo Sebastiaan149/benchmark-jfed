@@ -150,8 +150,8 @@ The full profile removes earlier `full/` results and then runs two benchmarks ov
 The first benchmark writes to `watdiv-results/full/single-unlimited/`:
 
 - One logical client on `client0`.
-- Three iterations.
-- 100 queries per iteration: all 20 WatDiv templates repeated five times.
+- One iteration.
+- 50 queries: the first 50 queries from the deterministic 100-query selection.
 - No client CPU or cgroup RAM limit; the client may use all six cores and available memory.
 - The logical client link is limited to `100 Mbit/s`.
 
@@ -199,7 +199,7 @@ The server preparation pipeline generates WatDiv NT, dataset HDT and index, char
 All results remain under `benchmark-jfed/watdiv-results/` on `client0`:
 
 - `smoke-1m/`: one-client validation results.
-- `full/single-unlimited/`: three-iteration unrestricted single-client results.
+- `full/single-unlimited/`: one-iteration, 50-query unrestricted single-client results.
 - `full/concurrent-limited/`: one-iteration limited concurrency-matrix results.
 - `full/combined-*.csv`: analysis tables combining both full benchmarks with a `benchmark` column.
 - `query-times.csv`: time to first result, complete response time, result count, process-tree CPU, and RSS.
