@@ -111,8 +111,19 @@ def main() -> None:
     combined_network = []
     combined_clients = []
     combined_reports = []
-    dataset_statistics = None
+    combined_dataset_statistics = []
     for name, result_root in benchmarks:
+        required_files = (
+            result_root / "averages.csv",
+            result_root / "network-averages.csv",
+            result_root / "network-clients.csv",
+        )
+        if not result_root.exists():
+            print(f"Skipping {name}: no results directory at {result_root}")
+            continue
+        if not any(path.is_file() for path in required_files):
+            print(f"Skipping {name}: aggregate files have not been generated yet")
+            continue
         averages, network, clients, report, current_statistics = analyze_result_set(
             result_root,
             args.benchmark_dir,
@@ -122,13 +133,18 @@ def main() -> None:
         combined_network.append(network.assign(benchmark=name))
         combined_clients.append(clients.assign(benchmark=name))
         combined_reports.append(report.assign(benchmark=name))
-        dataset_statistics = current_statistics
+        combined_dataset_statistics.append(current_statistics)
+
+    if not combined_averages:
+        raise FileNotFoundError(f"No analyzed full-profile results found under {profile_root}")
 
     pd.concat(combined_averages, ignore_index=True).to_csv(profile_root / "combined-averages.csv", index=False)
     pd.concat(combined_network, ignore_index=True).to_csv(profile_root / "combined-network-averages.csv", index=False)
     pd.concat(combined_clients, ignore_index=True).to_csv(profile_root / "combined-network-clients.csv", index=False)
     pd.concat(combined_reports, ignore_index=True).to_csv(profile_root / "combined-report-summary.csv", index=False)
-    dataset_statistics.to_csv(profile_root / "dataset-statistics.csv", index=False)
+    pd.concat(combined_dataset_statistics, ignore_index=True).drop_duplicates(subset=["size"]).sort_values(
+        "size",
+    ).to_csv(profile_root / "dataset-statistics.csv", index=False)
     print(f"Combined summary: {profile_root / 'combined-report-summary.csv'}")
 
 
