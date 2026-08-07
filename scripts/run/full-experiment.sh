@@ -70,6 +70,51 @@ RUN_ID="${RUN_ID:-$(date +%Y%m%d-%H%M%S)}"
 LOCAL_SERVER_METRICS_ROOT="$RESULTS_ROOT/server-metrics/$RUN_ID"
 REMOTE_SERVER_METRICS_ROOT="$REMOTE_RESULTS_ROOT/server-metrics/$RUN_ID"
 mkdir -p "$LOCAL_SERVER_METRICS_ROOT"
+FAILURE_LOG="$RESULTS_ROOT/benchmark-attempt-failures.csv"
+QUERY_FAILURE_LOG="$RESULTS_ROOT/benchmark-query-failures.csv"
+MAX_MINOR_QUERY_FAILURES="${MAX_MINOR_QUERY_FAILURES:-5}"
+MAX_MINOR_QUERY_FAILURE_PERCENT="${MAX_MINOR_QUERY_FAILURE_PERCENT:-10}"
+failure_count=0
+if [[ ! -f "$FAILURE_LOG" ]]; then
+  echo 'timestamp;runId;phase;size;framework;cacheMode;concurrency;classification;status;resultRoot;serverLog' > "$FAILURE_LOG"
+fi
+
+record_failure() {
+  local phase="$1"
+  local size="$2"
+  local framework="$3"
+  local cache="$4"
+  local concurrency="$5"
+  local status="$6"
+  local classification="${7:-recoverable-query-failure}"
+  printf '%s;%s;%s;%s;%s;%s;%s;%s;%s;%s;%s\n' \
+    "$(date --iso-8601=seconds)" "$RUN_ID" "$phase" "$size" "$framework" "$cache" "$concurrency" \
+    "$classification" "$status" "$RESULTS_ROOT/$size/$framework/$cache/c$concurrency" \
+    "$REMOTE_BENCHMARK_DIR/logs/jfed/server-$size-$framework.log" >> "$FAILURE_LOG"
+  failure_count="$((failure_count + 1))"
+}
+
+classify_query_failures() {
+  local size="$1"
+  local framework="$2"
+  local cache="$3"
+  local concurrency="$4"
+  node "$BENCHMARK_DIR/scripts/analysis/classify-query-failures.js" \
+    --run-root "$RESULTS_ROOT/$size/$framework/$cache/c$concurrency" \
+    --detail-log "$QUERY_FAILURE_LOG" \
+    --max-minor-failures "$MAX_MINOR_QUERY_FAILURES" \
+    --max-minor-failure-percent "$MAX_MINOR_QUERY_FAILURE_PERCENT" \
+    --run-id "$RUN_ID" \
+    --size "$size" \
+    --framework "$framework" \
+    --cache "$cache" \
+    --concurrency "$concurrency" \
+    --server-log "$REMOTE_BENCHMARK_DIR/logs/jfed/server-$size-$framework.log"
+}
+
+server_process_is_alive() {
+  remote "pid=\$(cat '$REMOTE_BENCHMARK_DIR/tmp/jfed-server.pid' 2>/dev/null || true); [[ \"\$pid\" =~ ^[0-9]+\$ ]] && kill -0 \"\$pid\" 2>/dev/null"
+}
 
 CLIENT_NODES=()
 if [[ -n "$CLIENT_SSHS" ]]; then
@@ -490,9 +535,13 @@ for size in $SIZES; do
         prepare_client_distribution "$concurrency"
         if [[ "$cache" == "warm" ]]; then
           echo "==> Warming client and server caches before measurement"
-          if ! run_client_workload "$framework" "$size" "$cache" "$concurrency" warmup; then
-            echo "Warmup failed for framework=$framework size=$size concurrency=$concurrency" >&2
-            exit 1
+          if run_client_workload "$framework" "$size" "$cache" "$concurrency" warmup; then
+            :
+          else
+            status=$?
+            record_failure warmup "$size" "$framework" "$cache" "$concurrency" "$status" fatal-warmup-failure
+            echo "Warmup failed for framework=$framework size=$size concurrency=$concurrency; stopping because the warm measurement would be invalid." >&2
+            exit "$status"
           fi
         fi
         server_metrics_file="$(start_server_monitor "$framework" "$size" "$cache" "$concurrency")"
@@ -510,12 +559,21 @@ for size in $SIZES; do
         local_server_metrics_file="$(pull_server_metrics "$framework" "$size" "$cache" "$concurrency" "$server_metrics_file")"
         pull_remote_client_results "$framework" "$size" "$cache" "$concurrency" "$local_server_metrics_file"
 
+        if [[ "$status" -ne 0 ]]; then
+          classification_status=0
+          classify_query_failures "$size" "$framework" "$cache" "$concurrency" || classification_status=$?
+          if [[ "$classification_status" -eq 10 ]] && server_process_is_alive; then
+            record_failure measured "$size" "$framework" "$cache" "$concurrency" "$status" recoverable-query-failure
+            echo "Recoverable query failures for framework=$framework size=$size cache=$cache concurrency=$concurrency; continuing." >&2
+          else
+            record_failure measured "$size" "$framework" "$cache" "$concurrency" "$status" fatal-processing-failure
+            echo "Fatal benchmark failure for framework=$framework size=$size cache=$cache concurrency=$concurrency." >&2
+            show_server_diagnostics "$framework" "$size"
+            exit "$status"
+          fi
+        fi
         if [[ "$RESTART_SERVER_PER_RUN" == "1" ]]; then
           stop_server
-        fi
-        if [[ "$status" -ne 0 ]]; then
-          echo "Benchmark failed for framework=$framework size=$size cache=$cache concurrency=$concurrency" >&2
-          exit "$status"
         fi
       done
     done
@@ -530,3 +588,6 @@ done
 RESULTS_ROOT="$RESULTS_ROOT" node "$BENCHMARK_DIR/scripts/analysis/aggregate-results.js"
 RESULTS_ROOT="$RESULTS_ROOT" node "$BENCHMARK_DIR/scripts/analysis/aggregate-network.js"
 echo "Full benchmark complete. Results: $RESULTS_ROOT"
+if (( failure_count > 0 )); then
+  echo "Completed with $failure_count recoverable benchmark combinations. Failure logs: $FAILURE_LOG and $QUERY_FAILURE_LOG" >&2
+fi
