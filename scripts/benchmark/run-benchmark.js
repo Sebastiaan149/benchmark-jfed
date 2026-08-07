@@ -87,6 +87,12 @@ function removeDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+function removeClientCaches(clientDir) {
+  for (const cacheDir of [ 'home', 'tmp', '.smartkg-cache', '.wisekg-cache' ]) {
+    removeDir(path.join(clientDir, cacheDir));
+  }
+}
+
 function resetRunDir(dir) {
   ensureDir(dir);
   for (const entry of fs.readdirSync(dir)) {
@@ -398,15 +404,16 @@ async function runClient({
   if (workloadPhase === 'warmup') {
     return runPass('warmup');
   }
-  if (cacheMode === 'warm' && workloadPhase === 'both') {
-    await runPass('warmup');
+  try {
+    if (cacheMode === 'warm' && workloadPhase === 'both') {
+      await runPass('warmup');
+    }
+    return await runPass('measured');
+  } finally {
+    if (!keepClientCaches) {
+      removeClientCaches(clientDir);
+    }
   }
-  const rows = await runPass('measured');
-  if (!keepClientCaches) {
-    removeDir(path.join(clientDir, 'home'));
-    removeDir(path.join(clientDir, 'tmp'));
-  }
-  return rows;
 }
 
 function writeCsv(file, rows) {

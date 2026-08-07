@@ -498,7 +498,12 @@ pull_remote_client_results() {
     if [[ "$node" != "local" ]]; then
       local remote_run_root="$REMOTE_CLIENT_RESULTS_ROOT/$size/$framework/$cache/c$concurrency/$run_label"
       mkdir -p "$local_run_root"
-      rsync -az --delete "$node:$remote_run_root/" "$local_run_root/" >/dev/null 2>&1
+      rsync -az --delete \
+        --exclude='home/' \
+        --exclude='tmp/' \
+        --exclude='.smartkg-cache/' \
+        --exclude='.wisekg-cache/' \
+        "$node:$remote_run_root/" "$local_run_root/" >/dev/null 2>&1
     fi
     node "$BENCHMARK_DIR/scripts/metrics/merge-server-resource-summary.js" \
       --run-root "$local_run_root" \
