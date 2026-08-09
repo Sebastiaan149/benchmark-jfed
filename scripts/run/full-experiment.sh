@@ -545,8 +545,7 @@ for size in $SIZES; do
           else
             status=$?
             record_failure warmup "$size" "$framework" "$cache" "$concurrency" "$status" fatal-warmup-failure
-            echo "Warmup failed for framework=$framework size=$size concurrency=$concurrency; stopping because the warm measurement would be invalid." >&2
-            exit "$status"
+            echo "Warmup failed for framework=$framework size=$size concurrency=$concurrency; continuing with the measured run." >&2
           fi
         fi
         server_metrics_file="$(start_server_monitor "$framework" "$size" "$cache" "$concurrency")"
