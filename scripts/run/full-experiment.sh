@@ -617,7 +617,15 @@ for size in $SIZES; do
           stop_server_monitor
           local_server_metric_files+=("$(pull_server_metrics "$framework" "$size" "$cache" "$concurrency" "$server_metrics_file")")
 
-          if [[ "$status" -eq 0 ]] || server_process_is_alive; then
+          if [[ "$status" -eq 0 ]]; then
+            break
+          fi
+
+          # A clustered endpoint can briefly keep its master PID alive after a
+          # worker was SIGKILLed. Wait for that shutdown to settle before
+          # deciding whether this was a server downtime.
+          sleep 10
+          if server_process_is_alive; then
             break
           fi
 

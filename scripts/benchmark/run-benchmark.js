@@ -305,21 +305,6 @@ function runCommand(command, args, options, timeoutMs, sampleIntervalMs, applyRe
   });
 }
 
-async function serverIsAvailable(source) {
-  const url = source.includes('@') ? source.slice(source.lastIndexOf('@') + 1) : source;
-  if (!/^https?:\/\//u.test(url)) {
-    return true;
-  }
-  try {
-    const response = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5_000) });
-    await response.body?.cancel();
-    return true;
-  } catch (error) {
-    const code = error?.cause?.code;
-    return ![ 'ECONNREFUSED', 'ECONNRESET', 'ENETUNREACH', 'EHOSTUNREACH' ].includes(code);
-  }
-}
-
 async function runClient({
   clientId,
   queries,
@@ -368,12 +353,19 @@ async function runClient({
     const completedQueryIndices = new Set(existingRows
       .filter(row => row.phase === phase && Number(row.client) === globalClientId)
       .map(row => Number(row.queryIndex)));
+    const failedQueries = new Set(existingRows
+      .filter(row => row.phase === phase && Number(row.client) === globalClientId &&
+        (String(row.status) !== '0' || row.timedOut))
+      .map(row => `${row.query};${row.queryInstance}`));
     for (let queryIndex = 0; queryIndex < querySlice.length; queryIndex++) {
       if (completedQueryIndices.has(queryIndex)) {
         continue;
       }
       const queryEntry = querySlice[queryIndex];
       const queryName = path.relative(dataRoot, queryEntry.file).replaceAll(path.sep, '/');
+      if (failedQueries.has(`${queryName};${queryEntry.instance}`)) {
+        continue;
+      }
       const command = netnsPrefix ? 'ip' : 'node';
       const commandArgs = netnsPrefix ?
         [ 'netns', 'exec', `${netnsPrefix}${globalClientId}`, 'node', engineBin, source, queryEntry.query ] :
@@ -419,17 +411,9 @@ async function runClient({
         clientMaxRssMb: result.resourceSummary.maxRssMb,
         stdoutFile: retainQueryOutputs ? path.relative(iterationDir, outFile).replaceAll(path.sep, '/') : '',
         stderrFile: fs.existsSync(errFile) ? path.relative(iterationDir, errFile).replaceAll(path.sep, '/') : '',
-        serverUnavailable: false,
       };
-      if (result.status !== 0 || result.timedOut) {
-        const initiallyAvailable = await serverIsAvailable(source);
-        if (initiallyAvailable) {
-          await new Promise(resolve => setTimeout(resolve, 1_000));
-        }
-        row.serverUnavailable = !initiallyAvailable || !await serverIsAvailable(source);
-      }
       rows.push(row);
-      if (row.serverUnavailable) {
+      if (result.status !== 0 || result.timedOut) {
         break;
       }
     }
@@ -473,7 +457,6 @@ function writeCsv(file, rows) {
     'clientMaxRssMb',
     'stdoutFile',
     'stderrFile',
-    'serverUnavailable',
   ];
   const lines = [ header.join(';') ];
   for (const row of rows) {
@@ -504,7 +487,6 @@ function readCsv(file) {
       }
     }
     row.timedOut = row.timedOut === 'true';
-    row.serverUnavailable = row.serverUnavailable === 'true';
     return row;
   });
 }
