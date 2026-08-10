@@ -25,6 +25,8 @@ RETAIN_QUERY_OUTPUTS="${RETAIN_QUERY_OUTPUTS:-0}"
 KEEP_CLIENT_CACHES="${KEEP_CLIENT_CACHES:-0}"
 WORKLOAD_PHASE="${WORKLOAD_PHASE:-both}"
 QUERY_SELECTION="${QUERY_SELECTION:-five}"
+QUERY_ORDER="${QUERY_ORDER:-fixed}"
+QUERY_ORDER_SEED="${QUERY_ORDER_SEED:-default}"
 CLIENT_NODE_OPTIONS="${CLIENT_NODE_OPTIONS:-}"
 RESUME="${RESUME:-0}"
 
@@ -118,6 +120,8 @@ node "$BENCHMARK_DIR/scripts/benchmark/run-benchmark.js" \
   --workload-phase "$WORKLOAD_PHASE" \
   --resume "$RESUME" \
   --query-selection "$QUERY_SELECTION" \
+  --query-order "$QUERY_ORDER" \
+  --query-order-seed "$QUERY_ORDER_SEED" \
   ${RUN_LABEL:+--run-label "$RUN_LABEL"} \
   --source "$source_url" \
   "${port_arg[@]}" \

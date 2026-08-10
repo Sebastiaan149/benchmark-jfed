@@ -93,6 +93,28 @@ function removeClientCaches(clientDir) {
   }
 }
 
+function queryOrderSeed(value) {
+  let hash = 2_166_136_261;
+  for (const character of value) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return hash >>> 0;
+}
+
+function randomizeQueries(queries, seed) {
+  const shuffled = [ ...queries ];
+  let state = queryOrderSeed(seed) || 1;
+  for (let index = shuffled.length - 1; index > 0; index--) {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    const otherIndex = (state >>> 0) % (index + 1);
+    [ shuffled[index], shuffled[otherIndex] ] = [ shuffled[otherIndex], shuffled[index] ];
+  }
+  return shuffled;
+}
+
 function resetRunDir(dir) {
   ensureDir(dir);
   for (const entry of fs.readdirSync(dir)) {
@@ -326,6 +348,9 @@ async function runClient({
   workloadPhase,
   resume,
   existingRows,
+  iteration,
+  queryOrder,
+  queryOrderSeedValue,
 }) {
   const globalClientId = clientId + clientIdOffset;
   const clientDir = path.join(iterationDir, 'clients', `client-${globalClientId}`);
@@ -340,7 +365,9 @@ async function runClient({
   const engineBin = frameworkConfig.clientMode === 'hdt-download' ?
     path.join(benchRoot, 'scripts', 'benchmark', 'query-hdt-dump.js') :
     path.join(root, 'comunicaMT', 'engines', frameworkConfig.engine, 'bin', 'query.js');
-  const querySlice = queryLimit > 0 ? queries.slice(0, queryLimit) : queries;
+  const orderedQueries = queryOrder === 'random' ?
+    randomizeQueries(queries, `${queryOrderSeedValue}:${globalClientId}:${iteration}`) : queries;
+  const querySlice = queryLimit > 0 ? orderedQueries.slice(0, queryLimit) : orderedQueries;
   const env = {
     ...process.env,
     HOME: path.join(clientDir, 'home'),
@@ -588,6 +615,8 @@ async function main() {
   const workloadPhase = args['workload-phase'] || 'both';
   const resume = String(args.resume || false) === '1' || String(args.resume || false).toLowerCase() === 'true';
   const querySelectionName = args['query-selection'] || config.defaultQuerySelection;
+  const queryOrder = args['query-order'] || 'fixed';
+  const queryOrderSeedValue = args['query-order-seed'] || 'default';
 
   if (!framework || !size) {
     throw new Error('Usage: 03-run-benchmark.js --framework <name> --size <size> [--concurrency N] [--total-concurrency N] [--run-label label]');
@@ -601,6 +630,9 @@ async function main() {
   }
   if (![ 'both', 'warmup', 'measured' ].includes(workloadPhase)) {
     throw new Error(`Unsupported workload phase: ${workloadPhase}`);
+  }
+  if (![ 'fixed', 'random' ].includes(queryOrder)) {
+    throw new Error(`Unsupported query order: ${queryOrder}`);
   }
   const querySelection = config.querySelections?.[querySelectionName];
   if ((!Array.isArray(querySelection) || querySelection.length === 0) && !querySelection?.allTemplates) {
@@ -657,6 +689,9 @@ async function main() {
         workloadPhase,
         resume,
         existingRows,
+        iteration,
+        queryOrder,
+        queryOrderSeedValue,
       }));
     }
     const attemptRows = (await Promise.all(clientPromises)).flat();

@@ -38,7 +38,9 @@ CONCURRENCY="${CONCURRENCY:-1 2 4 8 16 32 64}"
 ITERATIONS="${ITERATIONS:-1}"
 QUERY_LIMIT="${QUERY_LIMIT:-0}"
 QUERY_SELECTION="${QUERY_SELECTION:-five}"
+QUERY_ORDER="${QUERY_ORDER:-fixed}"
 CACHE_MODES="${CACHE_MODES:-auto}"
+CONCURRENCY_MAJOR_ORDER="${CONCURRENCY_MAJOR_ORDER:-0}"
 
 # Logical-client controls. These allow one physical client node to run many
 # isolated logical clients, or multiple physical client nodes to split the same
@@ -70,6 +72,7 @@ RESTART_SERVER_PER_RUN="${RESTART_SERVER_PER_RUN:-1}"
 # Store server-side monitoring files under a timestamped run id, then copy them
 # back to the client node after each run.
 RUN_ID="${RUN_ID:-$(date +%Y%m%d-%H%M%S)}"
+QUERY_ORDER_SEED="${QUERY_ORDER_SEED:-$RUN_ID}"
 LOCAL_SERVER_METRICS_ROOT="$RESULTS_ROOT/server-metrics/$RUN_ID"
 REMOTE_SERVER_METRICS_ROOT="$REMOTE_RESULTS_ROOT/server-metrics/$RUN_ID"
 mkdir -p "$LOCAL_SERVER_METRICS_ROOT"
@@ -460,6 +463,8 @@ run_local_client_slice() {
   ITERATIONS="$ITERATIONS" \
   QUERY_LIMIT="$QUERY_LIMIT" \
   QUERY_SELECTION="$QUERY_SELECTION" \
+  QUERY_ORDER="$QUERY_ORDER" \
+  QUERY_ORDER_SEED="$QUERY_ORDER_SEED" \
   NETNS_PREFIX="$NETNS_PREFIX" \
   CLIENT_CPU_MAX="$CLIENT_CPU_MAX" \
   CLIENT_MEMORY_MAX="$CLIENT_MEMORY_MAX" \
@@ -486,7 +491,7 @@ run_remote_client_slice() {
 
   echo "==> Running remote clients node=$node label=$run_label framework=$framework size=$size cache=$cache concurrency=$concurrency localClients=$local_clients offset=$offset"
   remote_client "$node" \
-    "cd '$REMOTE_CLIENT_WORKSPACE' && sudo -E env $(remote_client_export_prefix) FRAMEWORK='$framework' SIZE='$size' CACHE='$cache' LOCAL_CLIENTS='$local_clients' TOTAL_CONCURRENCY='$concurrency' CLIENT_ID_OFFSET='$offset' RUN_LABEL='$run_label' ITERATIONS='$ITERATIONS' QUERY_LIMIT='$QUERY_LIMIT' QUERY_SELECTION='$QUERY_SELECTION' WORKLOAD_PHASE='$workload_phase' RESUME='$resume' CLIENT_NODE_OPTIONS='$CLIENT_NODE_OPTIONS' ./benchmark-jfed/scripts/client/run-slice.sh"
+    "cd '$REMOTE_CLIENT_WORKSPACE' && sudo -E env $(remote_client_export_prefix) FRAMEWORK='$framework' SIZE='$size' CACHE='$cache' LOCAL_CLIENTS='$local_clients' TOTAL_CONCURRENCY='$concurrency' CLIENT_ID_OFFSET='$offset' RUN_LABEL='$run_label' ITERATIONS='$ITERATIONS' QUERY_LIMIT='$QUERY_LIMIT' QUERY_SELECTION='$QUERY_SELECTION' QUERY_ORDER='$QUERY_ORDER' QUERY_ORDER_SEED='$QUERY_ORDER_SEED' WORKLOAD_PHASE='$workload_phase' RESUME='$resume' CLIENT_NODE_OPTIONS='$CLIENT_NODE_OPTIONS' ./benchmark-jfed/scripts/client/run-slice.sh"
 }
 
 run_client_workload() {
@@ -605,117 +610,116 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Main benchmark loop:
-#   size -> framework -> cache mode -> concurrency
-#
-# For every selected combination, start the correct server, monitor it, run the
-# clients, merge metrics, then stop the server before the next combination.
-for size in $SIZES; do
-  for framework in $FRAMEWORKS; do
-    if [[ "$RESTART_SERVER_PER_RUN" != "1" ]]; then
-      start_server "$framework" "$size"
+run_combination() {
+  local size="$1"
+  local framework="$2"
+  local cache="$3"
+  local concurrency="$4"
+  if [[ "$RESTART_SERVER_PER_RUN" == "1" ]]; then
+    start_server "$framework" "$size"
+  fi
+
+  prepare_client_distribution "$concurrency"
+  if [[ "$cache" == "warm" ]]; then
+    echo "==> Warming client and server caches before measurement"
+    set +e
+    run_client_workload "$framework" "$size" "$cache" "$concurrency" warmup
+    status=$?
+    set -e
+    if [[ "$status" -ne 0 ]]; then
+      record_failure warmup "$size" "$framework" "$cache" "$concurrency" "$status" fatal-warmup-failure
+      echo "Warmup failed for framework=$framework size=$size concurrency=$concurrency; continuing with the measured run." >&2
     fi
+  fi
+  local server_incidents=0 query_failures=0 server_attempt=1 status=0 resume_workload server_metrics_file
+  local -a local_server_metric_files=()
+  while true; do
+    resume_workload=0
+    if (( server_attempt > 1 )); then resume_workload=1; fi
+    server_metrics_file="$(start_server_monitor "$framework" "$size" "$cache" "$concurrency" "$server_attempt")"
+    start_client_monitors "$framework" "$size" "$cache" "$concurrency" "$resume_workload"
+    set +e
+    if [[ "$cache" == "warm" ]]; then
+      run_client_workload "$framework" "$size" "$cache" "$concurrency" measured "$resume_workload"
+    else
+      run_client_workload "$framework" "$size" "$cache" "$concurrency" both "$resume_workload"
+    fi
+    status=$?
+    set -e
+    stop_client_monitors
+    stop_server_monitor
+    local_server_metric_files+=("$(pull_server_metrics "$framework" "$size" "$cache" "$concurrency" "$server_metrics_file")")
+    if [[ "$status" -eq 0 ]]; then break; fi
+    sleep 10
+    if server_process_is_alive && ! server_log_reports_crash "$framework" "$size"; then
+      query_failures="$((query_failures + 1))"
+      echo "Query failed but $framework server remains available; skipping it and continuing." >&2
+      server_attempt="$((server_attempt + 1))"
+      continue
+    fi
+    server_incidents="$((server_incidents + 1))"
+    archived_log="$(archive_server_incident "$size" "$framework" "$cache" "$concurrency" "$server_incidents")"
+    record_failure measured "$size" "$framework" "$cache" "$concurrency" "$status" server-outage-restarted
+    echo "WARNING: $framework server exited during $size $cache c$concurrency; archived $archived_log." >&2
+    echo "==> Restarting server and resuming after recorded query indices"
+    start_server "$framework" "$size"
+    server_attempt="$((server_attempt + 1))"
+  done
 
-    for cache in $(cache_modes_for_framework "$framework"); do
-      for concurrency in $CONCURRENCY; do
-        if [[ "$RESTART_SERVER_PER_RUN" == "1" ]]; then
-          start_server "$framework" "$size"
-        fi
+  local combined_server_metrics="$LOCAL_SERVER_METRICS_ROOT/$size/$framework/$cache/c$concurrency/server-resources.csv"
+  combine_server_metrics "$combined_server_metrics" "${local_server_metric_files[@]}"
+  pull_remote_client_results "$framework" "$size" "$cache" "$concurrency" "$combined_server_metrics" "$server_incidents"
+  if [[ "$status" -ne 0 ]]; then
+    local classification_status=0
+    classify_query_failures "$size" "$framework" "$cache" "$concurrency" || classification_status=$?
+    if [[ "$classification_status" -eq 10 ]] && server_process_is_alive; then
+      record_failure measured "$size" "$framework" "$cache" "$concurrency" "$status" recoverable-query-failure
+      echo "Recoverable query failures for framework=$framework size=$size cache=$cache concurrency=$concurrency; continuing." >&2
+    else
+      record_failure measured "$size" "$framework" "$cache" "$concurrency" "$status" fatal-processing-failure
+      echo "Fatal benchmark failure for framework=$framework size=$size cache=$cache concurrency=$concurrency." >&2
+      show_server_diagnostics "$framework" "$size"
+      exit "$status"
+    fi
+  elif (( server_incidents > 0 || query_failures > 0 )); then
+    classify_query_failures "$size" "$framework" "$cache" "$concurrency" >/dev/null 2>&1 || true
+  fi
+  if [[ "$RESTART_SERVER_PER_RUN" == "1" ]]; then stop_server; fi
+  if [[ "$CLEAR_CACHES_BETWEEN_CONCURRENCY" == "1" ]]; then
+    clear_runtime_caches_between_concurrency_levels "$size" "$framework" "$cache" "$concurrency"
+  fi
+}
 
-        prepare_client_distribution "$concurrency"
-        if [[ "$cache" == "warm" ]]; then
-          echo "==> Warming client and server caches before measurement"
-          if run_client_workload "$framework" "$size" "$cache" "$concurrency" warmup; then
-            :
-          else
-            status=$?
-            record_failure warmup "$size" "$framework" "$cache" "$concurrency" "$status" fatal-warmup-failure
-            echo "Warmup failed for framework=$framework size=$size concurrency=$concurrency; continuing with the measured run." >&2
-          fi
-        fi
-        server_incidents=0
-        query_failures=0
-        server_attempt=1
-        local_server_metric_files=()
-        while true; do
-          resume_workload=0
-          if (( server_attempt > 1 )); then
-            resume_workload=1
-          fi
-          server_metrics_file="$(start_server_monitor "$framework" "$size" "$cache" "$concurrency" "$server_attempt")"
-          start_client_monitors "$framework" "$size" "$cache" "$concurrency" "$resume_workload"
-          set +e
-          if [[ "$cache" == "warm" ]]; then
-            run_client_workload "$framework" "$size" "$cache" "$concurrency" measured "$resume_workload"
-          else
-            run_client_workload "$framework" "$size" "$cache" "$concurrency" both "$resume_workload"
-          fi
-          status=$?
-          set -e
-          stop_client_monitors
-          stop_server_monitor
-          local_server_metric_files+=("$(pull_server_metrics "$framework" "$size" "$cache" "$concurrency" "$server_metrics_file")")
-
-          if [[ "$status" -eq 0 ]]; then
-            break
-          fi
-
-          # A clustered endpoint can briefly keep its master PID alive after a
-          # worker was SIGKILLed. Wait for that shutdown to settle before
-          # deciding whether this was a server downtime.
-          sleep 10
-          if server_process_is_alive && ! server_log_reports_crash "$framework" "$size"; then
-            query_failures="$((query_failures + 1))"
-            echo "Query failed but $framework server remains available; skipping it and continuing." >&2
-            server_attempt="$((server_attempt + 1))"
-            continue
-          fi
-
-          server_incidents="$((server_incidents + 1))"
-          archived_log="$(archive_server_incident "$size" "$framework" "$cache" "$concurrency" "$server_incidents")"
-          record_failure measured "$size" "$framework" "$cache" "$concurrency" "$status" server-outage-restarted
-          echo "WARNING: $framework server exited during $size $cache c$concurrency; archived $archived_log." >&2
-          echo "==> Restarting server and resuming after recorded query indices"
-          start_server "$framework" "$size"
-          server_attempt="$((server_attempt + 1))"
+# Default order is size -> framework -> cache -> concurrency. The concurrent
+# profile uses concurrency-major order so no framework inherits its own earlier
+# low-concurrency cache state.
+if [[ "$CONCURRENCY_MAJOR_ORDER" == "1" ]]; then
+  if [[ "$RESTART_SERVER_PER_RUN" != "1" ]]; then
+    echo 'CONCURRENCY_MAJOR_ORDER requires RESTART_SERVER_PER_RUN=1.' >&2
+    exit 1
+  fi
+  for concurrency in $CONCURRENCY; do
+    for framework in $FRAMEWORKS; do
+      for size in $SIZES; do
+        for cache in $(cache_modes_for_framework "$framework"); do
+          run_combination "$size" "$framework" "$cache" "$concurrency"
         done
-
-        combined_server_metrics="$LOCAL_SERVER_METRICS_ROOT/$size/$framework/$cache/c$concurrency/server-resources.csv"
-        combine_server_metrics "$combined_server_metrics" "${local_server_metric_files[@]}"
-        pull_remote_client_results "$framework" "$size" "$cache" "$concurrency" "$combined_server_metrics" "$server_incidents"
-
-        if [[ "$status" -ne 0 ]]; then
-          classification_status=0
-          classify_query_failures "$size" "$framework" "$cache" "$concurrency" || classification_status=$?
-          if [[ "$classification_status" -eq 10 ]] && server_process_is_alive; then
-            record_failure measured "$size" "$framework" "$cache" "$concurrency" "$status" recoverable-query-failure
-            echo "Recoverable query failures for framework=$framework size=$size cache=$cache concurrency=$concurrency; continuing." >&2
-          else
-            record_failure measured "$size" "$framework" "$cache" "$concurrency" "$status" fatal-processing-failure
-            echo "Fatal benchmark failure for framework=$framework size=$size cache=$cache concurrency=$concurrency." >&2
-            show_server_diagnostics "$framework" "$size"
-            exit "$status"
-          fi
-        elif (( server_incidents > 0 || query_failures > 0 )); then
-          # The final resumed attempt succeeded. Keep the recorded failures in
-          # the detailed report without treating an already completed run as a
-          # fatal benchmark failure.
-          classify_query_failures "$size" "$framework" "$cache" "$concurrency" >/dev/null 2>&1 || true
-        fi
-        if [[ "$RESTART_SERVER_PER_RUN" == "1" ]]; then
-          stop_server
-        fi
-        if [[ "$CLEAR_CACHES_BETWEEN_CONCURRENCY" == "1" ]]; then
-          clear_runtime_caches_between_concurrency_levels "$size" "$framework" "$cache" "$concurrency"
-        fi
       done
     done
-
-    if [[ "$RESTART_SERVER_PER_RUN" != "1" ]]; then
-      stop_server
-    fi
   done
-done
+else
+  for size in $SIZES; do
+    for framework in $FRAMEWORKS; do
+      if [[ "$RESTART_SERVER_PER_RUN" != "1" ]]; then start_server "$framework" "$size"; fi
+      for cache in $(cache_modes_for_framework "$framework"); do
+        for concurrency in $CONCURRENCY; do
+          run_combination "$size" "$framework" "$cache" "$concurrency"
+        done
+      done
+      if [[ "$RESTART_SERVER_PER_RUN" != "1" ]]; then stop_server; fi
+    done
+  done
+fi
 
 # Rebuild the global aggregate CSV once the full matrix has completed.
 RESULTS_ROOT="$RESULTS_ROOT" node "$BENCHMARK_DIR/scripts/analysis/aggregate-results.js"
