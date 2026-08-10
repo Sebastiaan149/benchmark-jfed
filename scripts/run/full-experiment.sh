@@ -596,6 +596,7 @@ for size in $SIZES; do
           fi
         fi
         server_incidents=0
+        query_failures=0
         server_attempt=1
         local_server_metric_files=()
         while true; do
@@ -626,7 +627,10 @@ for size in $SIZES; do
           # deciding whether this was a server downtime.
           sleep 10
           if server_process_is_alive; then
-            break
+            query_failures="$((query_failures + 1))"
+            echo "Query failed but $framework server remains available; skipping it and continuing." >&2
+            server_attempt="$((server_attempt + 1))"
+            continue
           fi
 
           server_incidents="$((server_incidents + 1))"
@@ -654,9 +658,10 @@ for size in $SIZES; do
             show_server_diagnostics "$framework" "$size"
             exit "$status"
           fi
-        elif (( server_incidents > 0 )); then
-          # The resumed attempt succeeded, but retain the interrupted query in
-          # the detailed failure report and expose the restart in summaries.
+        elif (( server_incidents > 0 || query_failures > 0 )); then
+          # The final resumed attempt succeeded. Keep the recorded failures in
+          # the detailed report without treating an already completed run as a
+          # fatal benchmark failure.
           classify_query_failures "$size" "$framework" "$cache" "$concurrency" >/dev/null 2>&1 || true
         fi
         if [[ "$RESTART_SERVER_PER_RUN" == "1" ]]; then
