@@ -698,9 +698,9 @@ if [[ "$CONCURRENCY_MAJOR_ORDER" == "1" ]]; then
     echo 'CONCURRENCY_MAJOR_ORDER requires RESTART_SERVER_PER_RUN=1.' >&2
     exit 1
   fi
-  for concurrency in $CONCURRENCY; do
-    for framework in $FRAMEWORKS; do
-      for size in $SIZES; do
+  for size in $SIZES; do
+    for concurrency in $CONCURRENCY; do
+      for framework in $FRAMEWORKS; do
         for cache in $(cache_modes_for_framework "$framework"); do
           run_combination "$size" "$framework" "$cache" "$concurrency"
         done
