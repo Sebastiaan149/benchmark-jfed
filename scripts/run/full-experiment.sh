@@ -120,6 +120,12 @@ server_process_is_alive() {
   remote "pid=\$(cat '$REMOTE_BENCHMARK_DIR/tmp/jfed-server.pid' 2>/dev/null || true); [[ \"\$pid\" =~ ^[0-9]+\$ ]] && kill -0 \"\$pid\" 2>/dev/null"
 }
 
+server_log_reports_crash() {
+  local framework="$1"
+  local size="$2"
+  remote "grep -qE 'forcefully killed with (SIGKILL|9)|Killing main process as well' '$REMOTE_BENCHMARK_DIR/logs/jfed/server-$size-$framework.log'"
+}
+
 CLIENT_NODES=()
 if [[ -n "$CLIENT_SSHS" ]]; then
   read -r -a CLIENT_NODES <<< "$CLIENT_SSHS"
@@ -626,7 +632,7 @@ for size in $SIZES; do
           # worker was SIGKILLed. Wait for that shutdown to settle before
           # deciding whether this was a server downtime.
           sleep 10
-          if server_process_is_alive; then
+          if server_process_is_alive && ! server_log_reports_crash "$framework" "$size"; then
             query_failures="$((query_failures + 1))"
             echo "Query failed but $framework server remains available; skipping it and continuing." >&2
             server_attempt="$((server_attempt + 1))"

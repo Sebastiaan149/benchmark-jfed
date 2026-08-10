@@ -96,6 +96,7 @@
     "ldf-endpoint": {
       "port": 18085,
       "server": "comunica-file-http",
+      "workers": 1,
       "engine": "query-sparql",
       "source": "http://localhost:{port}/sparql",
       "cacheModes": ["cold"],

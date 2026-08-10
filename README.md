@@ -166,6 +166,7 @@ The second benchmark writes to `watdiv-results/full/concurrent-limited/`:
 For both benchmarks:
 
 - SmartKG, SmartKG+, and WiseKG: cold and warm cache runs.
+- `ldf-endpoint`: one Node.js worker for all sizes and both benchmark modes, preventing multiple 50M/100M NT query heaps from exhausting the 62 GiB server.
 - Warm-cache queries run before server and network monitoring starts; only the following measured queries contribute metrics.
 - Other frameworks: cold cache runs.
 - One server process at a time, with the previous process fully stopped before the next starts.
