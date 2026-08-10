@@ -305,6 +305,21 @@ function runCommand(command, args, options, timeoutMs, sampleIntervalMs, applyRe
   });
 }
 
+async function serverIsAvailable(source) {
+  const url = source.includes('@') ? source.slice(source.lastIndexOf('@') + 1) : source;
+  if (!/^https?:\/\//u.test(url)) {
+    return true;
+  }
+  try {
+    const response = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5_000) });
+    await response.body?.cancel();
+    return true;
+  } catch (error) {
+    const code = error?.cause?.code;
+    return ![ 'ECONNREFUSED', 'ECONNRESET', 'ENETUNREACH', 'EHOSTUNREACH' ].includes(code);
+  }
+}
+
 async function runClient({
   clientId,
   queries,
@@ -324,10 +339,12 @@ async function runClient({
   retainQueryOutputs,
   keepClientCaches,
   workloadPhase,
+  resume,
+  existingRows,
 }) {
   const globalClientId = clientId + clientIdOffset;
   const clientDir = path.join(iterationDir, 'clients', `client-${globalClientId}`);
-  if (cacheMode === 'cold') {
+  if (cacheMode === 'cold' && !resume) {
     removeDir(clientDir);
   }
   ensureDir(clientDir);
@@ -348,7 +365,13 @@ async function runClient({
 
   async function runPass(phase) {
     const rows = [];
+    const completedQueryIndices = new Set(existingRows
+      .filter(row => row.phase === phase && Number(row.client) === globalClientId)
+      .map(row => Number(row.queryIndex)));
     for (let queryIndex = 0; queryIndex < querySlice.length; queryIndex++) {
+      if (completedQueryIndices.has(queryIndex)) {
+        continue;
+      }
       const queryEntry = querySlice[queryIndex];
       const queryName = path.relative(dataRoot, queryEntry.file).replaceAll(path.sep, '/');
       const command = netnsPrefix ? 'ip' : 'node';
@@ -375,7 +398,7 @@ async function runClient({
       }
       const results = result.resultCount;
       const throughput = result.timeMs > 0 ? results / (result.timeMs / 1_000) : 0;
-      rows.push({
+      const row = {
         phase,
         client: globalClientId,
         queryIndex,
@@ -396,7 +419,19 @@ async function runClient({
         clientMaxRssMb: result.resourceSummary.maxRssMb,
         stdoutFile: retainQueryOutputs ? path.relative(iterationDir, outFile).replaceAll(path.sep, '/') : '',
         stderrFile: fs.existsSync(errFile) ? path.relative(iterationDir, errFile).replaceAll(path.sep, '/') : '',
-      });
+        serverUnavailable: false,
+      };
+      if (result.status !== 0 || result.timedOut) {
+        const initiallyAvailable = await serverIsAvailable(source);
+        if (initiallyAvailable) {
+          await new Promise(resolve => setTimeout(resolve, 1_000));
+        }
+        row.serverUnavailable = !initiallyAvailable || !await serverIsAvailable(source);
+      }
+      rows.push(row);
+      if (row.serverUnavailable) {
+        break;
+      }
     }
     return rows;
   }
@@ -438,12 +473,40 @@ function writeCsv(file, rows) {
     'clientMaxRssMb',
     'stdoutFile',
     'stderrFile',
+    'serverUnavailable',
   ];
   const lines = [ header.join(';') ];
   for (const row of rows) {
-    lines.push(header.map(key => String(row[key]).replaceAll(';', ',')).join(';'));
+    lines.push(header.map(key => String(row[key] ?? '').replaceAll(';', ',')).join(';'));
   }
   fs.writeFileSync(file, `${lines.join('\n')}\n`);
+}
+
+function readCsv(file) {
+  if (!fs.existsSync(file)) {
+    return [];
+  }
+  const lines = fs.readFileSync(file, 'utf8').trim().split(/\r?\n/u);
+  if (lines.length < 2) {
+    return [];
+  }
+  const headers = lines.shift().split(';');
+  return lines.filter(Boolean).map((line) => {
+    const values = line.split(';');
+    const row = Object.fromEntries(headers.map((header, index) => [ header, values[index] ?? '' ]));
+    for (const field of [
+      'client', 'queryIndex', 'queryInstance', 'status', 'results', 'timeMs', 'firstResultTimeMs',
+      'fullResultTimeMs', 'resultThroughputPerSec', 'clientResourceSampleCount', 'clientAvgCpuPercent',
+      'clientMaxCpuPercent', 'clientAvgRssMb', 'clientMaxRssMb',
+    ]) {
+      if (row[field] !== '' && /^-?\d+(?:\.\d+)?$/u.test(row[field])) {
+        row[field] = Number(row[field]);
+      }
+    }
+    row.timedOut = row.timedOut === 'true';
+    row.serverUnavailable = row.serverUnavailable === 'true';
+    return row;
+  });
 }
 
 function summarize(rows, phase = 'measured') {
@@ -541,6 +604,7 @@ async function main() {
   const keepClientCaches = String(args['keep-client-caches'] ?? config.resources.keepClientCaches ?? false) === '1' ||
     String(args['keep-client-caches'] ?? config.resources.keepClientCaches ?? false).toLowerCase() === 'true';
   const workloadPhase = args['workload-phase'] || 'both';
+  const resume = String(args.resume || false) === '1' || String(args.resume || false).toLowerCase() === 'true';
   const querySelectionName = args['query-selection'] || config.defaultQuerySelection;
 
   if (!framework || !size) {
@@ -573,14 +637,17 @@ async function main() {
   const source = (args.source || frameworkConfig.source).replaceAll('{port}', String(port));
   const runRootBase = path.join(resultsRoot, size, framework, cacheMode, `c${totalConcurrency}`);
   const runRoot = runLabel ? path.join(runRootBase, runLabel) : runRootBase;
-  if (workloadPhase !== 'measured') {
+  if (workloadPhase !== 'measured' && !resume) {
     resetRunDir(runRoot);
   }
 
   const allSummaries = [];
+  let attemptFailureCount = 0;
   for (let iteration = 1; iteration <= iterations; iteration++) {
     const iterationDir = path.join(runRoot, `iteration-${String(iteration).padStart(3, '0')}`);
-    if (cacheMode === 'cold') {
+    const queryTimesFile = path.join(iterationDir, 'query-times.csv');
+    const existingRows = resume ? readCsv(queryTimesFile) : [];
+    if (cacheMode === 'cold' && !resume) {
       removeDir(iterationDir);
     }
     ensureDir(iterationDir);
@@ -606,10 +673,15 @@ async function main() {
         retainQueryOutputs,
         keepClientCaches,
         workloadPhase,
+        resume,
+        existingRows,
       }));
     }
-    const rows = (await Promise.all(clientPromises)).flat();
-    writeCsv(path.join(iterationDir, 'query-times.csv'), rows);
+    const attemptRows = (await Promise.all(clientPromises)).flat();
+    attemptFailureCount += attemptRows.filter(row => row.status !== 0 || row.timedOut).length;
+    const rows = [ ...existingRows, ...attemptRows ].sort((left, right) =>
+      Number(left.client) - Number(right.client) || Number(left.queryIndex) - Number(right.queryIndex));
+    writeCsv(queryTimesFile, rows);
     const summary = {
       framework,
       size,
@@ -634,10 +706,9 @@ async function main() {
   }
 
   fs.writeFileSync(path.join(runRoot, 'summary.json'), `${JSON.stringify(allSummaries, null, 2)}\n`);
-  const failureCount = allSummaries.reduce((total, summary) => total + summary.failures, 0);
-  if (failureCount > 0) {
+  if (attemptFailureCount > 0) {
     throw new Error(
-      `${failureCount} query executions failed for ${framework} ${size} ${cacheMode} ` +
+      `${attemptFailureCount} query executions failed for ${framework} ${size} ${cacheMode} ` +
       `c${totalConcurrency}; inspect the .err files under ${runRoot}.`,
     );
   }

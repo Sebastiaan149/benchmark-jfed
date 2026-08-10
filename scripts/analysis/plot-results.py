@@ -79,6 +79,8 @@ def analyze_result_set(results_root: Path, benchmark_dir: Path, benchmark_name: 
         "clientAvgRssMb",
         "serverAvgCpuPercent",
         "serverAvgRssMb",
+        "serverDowntimeCount",
+        "serverRecoveryWarning",
     ]
     report = averages[summary_columns].merge(dataset_statistics, on="size", how="left").sort_values(
         ["size", "framework", "cacheMode", "concurrency"],

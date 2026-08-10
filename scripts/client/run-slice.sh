@@ -26,6 +26,7 @@ KEEP_CLIENT_CACHES="${KEEP_CLIENT_CACHES:-0}"
 WORKLOAD_PHASE="${WORKLOAD_PHASE:-both}"
 QUERY_SELECTION="${QUERY_SELECTION:-five}"
 CLIENT_NODE_OPTIONS="${CLIENT_NODE_OPTIONS:-}"
+RESUME="${RESUME:-0}"
 
 RUN_ROOT="$RESULTS_ROOT/$SIZE/$FRAMEWORK/$CACHE/c$TOTAL_CONCURRENCY"
 if [[ -n "$RUN_LABEL" ]]; then
@@ -115,6 +116,7 @@ node "$BENCHMARK_DIR/scripts/benchmark/run-benchmark.js" \
   --retain-query-outputs "$RETAIN_QUERY_OUTPUTS" \
   --keep-client-caches "$KEEP_CLIENT_CACHES" \
   --workload-phase "$WORKLOAD_PHASE" \
+  --resume "$RESUME" \
   --query-selection "$QUERY_SELECTION" \
   ${RUN_LABEL:+--run-label "$RUN_LABEL"} \
   --source "$source_url" \

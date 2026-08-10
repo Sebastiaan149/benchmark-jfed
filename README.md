@@ -169,7 +169,8 @@ For both benchmarks:
 - Warm-cache queries run before server and network monitoring starts; only the following measured queries contribute metrics.
 - Other frameworks: cold cache runs.
 - One server process at a time, with the previous process fully stopped before the next starts.
-- Timeout-only combinations and a small minority of failed queries are retained in `benchmark-attempt-failures.csv` and detailed in `benchmark-query-failures.csv`; missing results, widespread processing errors, and failed server processes stop the run.
+- Timeout-only combinations and a small minority of failed queries are retained in `benchmark-attempt-failures.csv` and detailed in `benchmark-query-failures.csv`.
+- If a server exits during a workload, its log is archived under `logs/jfed/incidents/`, the interrupted query remains a failed result, and the unchanged server is restarted. Recorded query indices are skipped so execution resumes with the remaining queries. Every occurrence increments `serverDowntimeCount`.
 
 Before the query matrix, three simultaneous `iperf3` tests use 22, 21, and 21 streams and write their results under `watdiv-results/full/calibration/`.
 
@@ -210,6 +211,8 @@ All results remain under `benchmark-jfed/watdiv-results/` on `client0`:
 - `network-clients.csv`: network measurements per logical client.
 - `benchmark-attempt-failures.csv`: failed benchmark combinations and whether they were recoverable or fatal.
 - `benchmark-query-failures.csv`: individual failed queries with timeout, exit, signal, stderr, and server-log references.
+- `benchmark-server-incidents.csv`: every unexpected server exit, restart, and archived pre-restart log.
+- `serverDowntimeCount` and `serverRecoveryWarning`: incident fields included in `averages.csv` and `report-summary.csv`.
 - `dataset-statistics.csv`: triple, regular-partition, and typed-partition counts per dataset size.
 - `plots/` and `report-summary.csv`: terminal-generated analysis output.
 

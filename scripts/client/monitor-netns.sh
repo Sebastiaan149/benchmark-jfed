@@ -10,9 +10,12 @@ CLIENT_ID_OFFSET="${CLIENT_ID_OFFSET:-0}"
 PREFIX="${NETNS_PREFIX:-bench-c}"
 OUT="${OUT:-$RESULTS_ROOT/client-netns.csv}"
 INTERVAL="${INTERVAL:-1}"
+APPEND="${APPEND:-0}"
 
 mkdir -p "$(dirname "$OUT")"
-echo "timestamp;client;rxBytes;txBytes;rxPackets;txPackets" > "$OUT"
+if [[ "$APPEND" != "1" || ! -s "$OUT" ]]; then
+  echo "timestamp;client;rxBytes;txBytes;rxPackets;txPackets" > "$OUT"
+fi
 
 sample_all() {
   ts="$(date --iso-8601=ns)"

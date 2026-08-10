@@ -78,6 +78,10 @@ failure_count=0
 if [[ ! -f "$FAILURE_LOG" ]]; then
   echo 'timestamp;runId;phase;size;framework;cacheMode;concurrency;classification;status;resultRoot;serverLog' > "$FAILURE_LOG"
 fi
+SERVER_INCIDENT_LOG="$RESULTS_ROOT/benchmark-server-incidents.csv"
+if [[ ! -f "$SERVER_INCIDENT_LOG" ]]; then
+  echo 'timestamp;runId;size;framework;cacheMode;concurrency;incident;action;archivedServerLog' > "$SERVER_INCIDENT_LOG"
+fi
 
 record_failure() {
   local phase="$1"
@@ -250,7 +254,8 @@ start_server_monitor() {
   local size="$2"
   local cache="$3"
   local concurrency="$4"
-  local remote_file="$REMOTE_SERVER_METRICS_ROOT/$size/$framework/$cache/c$concurrency/server-resources.csv"
+  local attempt="${5:-1}"
+  local remote_file="$REMOTE_SERVER_METRICS_ROOT/$size/$framework/$cache/c$concurrency/server-resources-attempt-$(printf '%03d' "$attempt").csv"
   remote "mkdir -p '$(dirname "$remote_file")'; cd '$REMOTE_WORKSPACE'; pid=\$(cat '$REMOTE_BENCHMARK_DIR/tmp/jfed-server.pid'); nohup node '$REMOTE_BENCHMARK_DIR/scripts/metrics/monitor-process-tree.js' --pid \"\$pid\" --out '$remote_file' --interval '$SAMPLE_INTERVAL_MS' >/tmp/watdiv-server-monitor.log 2>&1 & echo \$! > '$REMOTE_BENCHMARK_DIR/tmp/jfed-server-monitor.pid'"
   echo "$remote_file"
 }
@@ -267,7 +272,7 @@ pull_server_metrics() {
   local cache="$3"
   local concurrency="$4"
   local remote_file="$5"
-  local local_file="$LOCAL_SERVER_METRICS_ROOT/$size/$framework/$cache/c$concurrency/server-resources.csv"
+  local local_file="$LOCAL_SERVER_METRICS_ROOT/$size/$framework/$cache/c$concurrency/$(basename "$remote_file")"
   mkdir -p "$(dirname "$local_file")"
   rsync -az "$SERVER_SSH:$remote_file" "$local_file"
   echo "$local_file"
@@ -348,6 +353,7 @@ start_client_monitors() {
   local size="$2"
   local cache="$3"
   local concurrency="$4"
+  local append="${5:-0}"
   if [[ "$ENABLE_CLIENT_NETNS_MONITOR" != "1" || -z "$NETNS_PREFIX" ]]; then
     return
   fi
@@ -362,12 +368,12 @@ start_client_monitors() {
     if [[ "$node" == "local" ]]; then
       out_file="$(client_run_root "$framework" "$size" "$cache" "$concurrency" "$run_label")/client-netns.csv"
       mkdir -p "$(dirname "$out_file")" "$TMP_ROOT"
-      sudo -E env COUNT="$local_clients" CLIENT_ID_OFFSET="$offset" NETNS_PREFIX="$NETNS_PREFIX" OUT="$out_file" \
+      sudo -E env COUNT="$local_clients" CLIENT_ID_OFFSET="$offset" NETNS_PREFIX="$NETNS_PREFIX" OUT="$out_file" APPEND="$append" \
         "$SCRIPT_DIR/../client/monitor-netns.sh" >/tmp/watdiv-client-netns-monitor.log 2>&1 &
       echo "$!" > "$TMP_ROOT/jfed-client-netns-monitor-local.pid"
     else
       out_file="$REMOTE_CLIENT_RESULTS_ROOT/$size/$framework/$cache/c$concurrency/$run_label/client-netns.csv"
-      remote_client "$node" "mkdir -p '$(dirname "$out_file")' '$REMOTE_CLIENT_BENCHMARK_DIR/tmp'; cd '$REMOTE_CLIENT_WORKSPACE'; sudo -E env $(remote_client_export_prefix) COUNT='$local_clients' CLIENT_ID_OFFSET='$offset' OUT='$out_file' ./benchmark-jfed/scripts/client/monitor-netns.sh >/tmp/watdiv-client-netns-monitor-$run_label.log 2>&1 & echo \$! > '$pid_file'"
+      remote_client "$node" "mkdir -p '$(dirname "$out_file")' '$REMOTE_CLIENT_BENCHMARK_DIR/tmp'; cd '$REMOTE_CLIENT_WORKSPACE'; sudo -E env $(remote_client_export_prefix) COUNT='$local_clients' CLIENT_ID_OFFSET='$offset' OUT='$out_file' APPEND='$append' ./benchmark-jfed/scripts/client/monitor-netns.sh >/tmp/watdiv-client-netns-monitor-$run_label.log 2>&1 & echo \$! > '$pid_file'"
     fi
   done
 }
@@ -402,6 +408,7 @@ run_local_client_slice() {
   local offset="$6"
   local run_label="$7"
   local workload_phase="$8"
+  local resume="${9:-0}"
 
   echo "==> Running local clients framework=$framework size=$size cache=$cache concurrency=$concurrency localClients=$local_clients offset=$offset"
   sudo -E env SERVER_IP="$SERVER_IP" \
@@ -422,6 +429,7 @@ run_local_client_slice() {
   RETAIN_QUERY_OUTPUTS="$RETAIN_QUERY_OUTPUTS" \
   KEEP_CLIENT_CACHES="$KEEP_CLIENT_CACHES" \
   WORKLOAD_PHASE="$workload_phase" \
+  RESUME="$resume" \
   CLIENT_NODE_OPTIONS="$CLIENT_NODE_OPTIONS" \
     "$SCRIPT_DIR/../client/run-slice.sh"
 }
@@ -436,10 +444,11 @@ run_remote_client_slice() {
   local local_clients="$7"
   local offset="$8"
   local workload_phase="$9"
+  local resume="${10:-0}"
 
   echo "==> Running remote clients node=$node label=$run_label framework=$framework size=$size cache=$cache concurrency=$concurrency localClients=$local_clients offset=$offset"
   remote_client "$node" \
-    "cd '$REMOTE_CLIENT_WORKSPACE' && sudo -E env $(remote_client_export_prefix) FRAMEWORK='$framework' SIZE='$size' CACHE='$cache' LOCAL_CLIENTS='$local_clients' TOTAL_CONCURRENCY='$concurrency' CLIENT_ID_OFFSET='$offset' RUN_LABEL='$run_label' ITERATIONS='$ITERATIONS' QUERY_LIMIT='$QUERY_LIMIT' QUERY_SELECTION='$QUERY_SELECTION' WORKLOAD_PHASE='$workload_phase' CLIENT_NODE_OPTIONS='$CLIENT_NODE_OPTIONS' ./benchmark-jfed/scripts/client/run-slice.sh"
+    "cd '$REMOTE_CLIENT_WORKSPACE' && sudo -E env $(remote_client_export_prefix) FRAMEWORK='$framework' SIZE='$size' CACHE='$cache' LOCAL_CLIENTS='$local_clients' TOTAL_CONCURRENCY='$concurrency' CLIENT_ID_OFFSET='$offset' RUN_LABEL='$run_label' ITERATIONS='$ITERATIONS' QUERY_LIMIT='$QUERY_LIMIT' QUERY_SELECTION='$QUERY_SELECTION' WORKLOAD_PHASE='$workload_phase' RESUME='$resume' CLIENT_NODE_OPTIONS='$CLIENT_NODE_OPTIONS' ./benchmark-jfed/scripts/client/run-slice.sh"
 }
 
 run_client_workload() {
@@ -448,10 +457,11 @@ run_client_workload() {
   local cache="$3"
   local concurrency="$4"
   local workload_phase="${5:-both}"
+  local resume="${6:-0}"
 
   if ! use_remote_clients; then
     run_local_client_slice "$framework" "$size" "$cache" "$concurrency" \
-      "${ACTIVE_LOCAL_CLIENTS[0]}" "${ACTIVE_CLIENT_OFFSETS[0]}" "${ACTIVE_RUN_LABELS[0]}" "$workload_phase"
+      "${ACTIVE_LOCAL_CLIENTS[0]}" "${ACTIVE_CLIENT_OFFSETS[0]}" "${ACTIVE_RUN_LABELS[0]}" "$workload_phase" "$resume"
     return
   fi
 
@@ -459,10 +469,10 @@ run_client_workload() {
   for index in "${!ACTIVE_CLIENT_NODES[@]}"; do
     if [[ "${ACTIVE_CLIENT_NODES[$index]}" == "local" ]]; then
       run_local_client_slice "$framework" "$size" "$cache" "$concurrency" \
-        "${ACTIVE_LOCAL_CLIENTS[$index]}" "${ACTIVE_CLIENT_OFFSETS[$index]}" "${ACTIVE_RUN_LABELS[$index]}" "$workload_phase" &
+        "${ACTIVE_LOCAL_CLIENTS[$index]}" "${ACTIVE_CLIENT_OFFSETS[$index]}" "${ACTIVE_RUN_LABELS[$index]}" "$workload_phase" "$resume" &
     else
       run_remote_client_slice "${ACTIVE_CLIENT_NODES[$index]}" "${ACTIVE_RUN_LABELS[$index]}" \
-        "$framework" "$size" "$cache" "$concurrency" "${ACTIVE_LOCAL_CLIENTS[$index]}" "${ACTIVE_CLIENT_OFFSETS[$index]}" "$workload_phase" &
+        "$framework" "$size" "$cache" "$concurrency" "${ACTIVE_LOCAL_CLIENTS[$index]}" "${ACTIVE_CLIENT_OFFSETS[$index]}" "$workload_phase" "$resume" &
     fi
     pids+=("$!")
   done
@@ -482,11 +492,18 @@ pull_remote_client_results() {
   local cache="$3"
   local concurrency="$4"
   local server_metrics_file="$5"
+  local server_failure_count="${6:-0}"
+  local recovery_warning=""
+  if (( server_failure_count > 0 )); then
+    recovery_warning="WARNING: server exited unexpectedly and was restarted $server_failure_count time(s), interrupted queries were retained as failures and skipped during recovery."
+  fi
 
   if ! use_remote_clients; then
     node "$BENCHMARK_DIR/scripts/metrics/merge-server-resource-summary.js" \
       --run-root "$(client_run_root "$framework" "$size" "$cache" "$concurrency" "")" \
-      --server-resource-file "$server_metrics_file"
+      --server-resource-file "$server_metrics_file" \
+      --server-downtime-count "$server_failure_count" \
+      --server-recovery-warning "$recovery_warning"
     return
   fi
 
@@ -507,8 +524,38 @@ pull_remote_client_results() {
     fi
     node "$BENCHMARK_DIR/scripts/metrics/merge-server-resource-summary.js" \
       --run-root "$local_run_root" \
-      --server-resource-file "$server_metrics_file"
+      --server-resource-file "$server_metrics_file" \
+      --server-downtime-count "$server_failure_count" \
+      --server-recovery-warning "$recovery_warning"
   done
+}
+
+combine_server_metrics() {
+  local output="$1"
+  shift
+  mkdir -p "$(dirname "$output")"
+  if [[ "$#" -eq 0 ]]; then
+    echo 'timestamp;pid;processCount;cpuPercent;rssMb;commands' > "$output"
+    return
+  fi
+  head -n 1 "$1" > "$output"
+  for file in "$@"; do
+    tail -n +2 "$file" >> "$output"
+  done
+}
+
+archive_server_incident() {
+  local size="$1"
+  local framework="$2"
+  local cache="$3"
+  local concurrency="$4"
+  local incident="$5"
+  local archive="$REMOTE_BENCHMARK_DIR/logs/jfed/incidents/server-$size-$framework-$RUN_ID-incident-$(printf '%03d' "$incident").log"
+  remote "mkdir -p '$(dirname "$archive")'; cp '$REMOTE_BENCHMARK_DIR/logs/jfed/server-$size-$framework.log' '$archive'"
+  printf '%s;%s;%s;%s;%s;%s;%s;%s;%s\n' \
+    "$(date --iso-8601=seconds)" "$RUN_ID" "$size" "$framework" "$cache" "$concurrency" \
+    "$incident" restarted-and-resumed "$archive" >> "$SERVER_INCIDENT_LOG"
+  echo "$archive"
 }
 
 # Always stop the server and monitor on exit so a failed benchmark does not leave
@@ -548,20 +595,44 @@ for size in $SIZES; do
             echo "Warmup failed for framework=$framework size=$size concurrency=$concurrency; continuing with the measured run." >&2
           fi
         fi
-        server_metrics_file="$(start_server_monitor "$framework" "$size" "$cache" "$concurrency")"
-        start_client_monitors "$framework" "$size" "$cache" "$concurrency"
-        set +e
-        if [[ "$cache" == "warm" ]]; then
-          run_client_workload "$framework" "$size" "$cache" "$concurrency" measured
-        else
-          run_client_workload "$framework" "$size" "$cache" "$concurrency" both
-        fi
-        status=$?
-        set -e
-        stop_client_monitors
-        stop_server_monitor
-        local_server_metrics_file="$(pull_server_metrics "$framework" "$size" "$cache" "$concurrency" "$server_metrics_file")"
-        pull_remote_client_results "$framework" "$size" "$cache" "$concurrency" "$local_server_metrics_file"
+        server_incidents=0
+        server_attempt=1
+        local_server_metric_files=()
+        while true; do
+          resume_workload=0
+          if (( server_attempt > 1 )); then
+            resume_workload=1
+          fi
+          server_metrics_file="$(start_server_monitor "$framework" "$size" "$cache" "$concurrency" "$server_attempt")"
+          start_client_monitors "$framework" "$size" "$cache" "$concurrency" "$resume_workload"
+          set +e
+          if [[ "$cache" == "warm" ]]; then
+            run_client_workload "$framework" "$size" "$cache" "$concurrency" measured "$resume_workload"
+          else
+            run_client_workload "$framework" "$size" "$cache" "$concurrency" both "$resume_workload"
+          fi
+          status=$?
+          set -e
+          stop_client_monitors
+          stop_server_monitor
+          local_server_metric_files+=("$(pull_server_metrics "$framework" "$size" "$cache" "$concurrency" "$server_metrics_file")")
+
+          if [[ "$status" -eq 0 ]] || server_process_is_alive; then
+            break
+          fi
+
+          server_incidents="$((server_incidents + 1))"
+          archived_log="$(archive_server_incident "$size" "$framework" "$cache" "$concurrency" "$server_incidents")"
+          record_failure measured "$size" "$framework" "$cache" "$concurrency" "$status" server-outage-restarted
+          echo "WARNING: $framework server exited during $size $cache c$concurrency; archived $archived_log." >&2
+          echo "==> Restarting server and resuming after recorded query indices"
+          start_server "$framework" "$size"
+          server_attempt="$((server_attempt + 1))"
+        done
+
+        combined_server_metrics="$LOCAL_SERVER_METRICS_ROOT/$size/$framework/$cache/c$concurrency/server-resources.csv"
+        combine_server_metrics "$combined_server_metrics" "${local_server_metric_files[@]}"
+        pull_remote_client_results "$framework" "$size" "$cache" "$concurrency" "$combined_server_metrics" "$server_incidents"
 
         if [[ "$status" -ne 0 ]]; then
           classification_status=0
@@ -575,6 +646,10 @@ for size in $SIZES; do
             show_server_diagnostics "$framework" "$size"
             exit "$status"
           fi
+        elif (( server_incidents > 0 )); then
+          # The resumed attempt succeeded, but retain the interrupted query in
+          # the detailed failure report and expose the restart in summaries.
+          classify_query_failures "$size" "$framework" "$cache" "$concurrency" >/dev/null 2>&1 || true
         fi
         if [[ "$RESTART_SERVER_PER_RUN" == "1" ]]; then
           stop_server

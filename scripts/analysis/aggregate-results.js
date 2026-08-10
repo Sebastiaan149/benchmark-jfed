@@ -69,6 +69,8 @@ for (const values of iterations.values()) {
     serverMaxCpuPercent: Math.max(...values.map(value => Number(value.serverMaxCpuPercent || 0))),
     serverAvgRssMb: values.reduce((sum, value) => sum + Number(value.serverAvgRssMb || 0), 0) / values.length,
     serverMaxRssMb: Math.max(...values.map(value => Number(value.serverMaxRssMb || 0))),
+    serverDowntimeCount: Math.max(...values.map(value => Number(value.serverDowntimeCount || 0))),
+    serverRecoveryWarning: values.map(value => value.serverRecoveryWarning || '').find(Boolean) || '',
   });
 }
 
@@ -87,6 +89,7 @@ const columns = [
   'avgFailures', 'avgTotalResults', 'clientAvgCpuPercent', 'clientMaxCpuPercent',
   'clientAvgRssMb', 'clientMaxRssMb', 'serverAvgCpuPercent', 'serverMaxCpuPercent',
   'serverAvgRssMb', 'serverMaxRssMb',
+  'serverDowntimeCount', 'serverRecoveryWarning',
 ];
 const lines = [ columns.join(';') ];
 for (const [ key, values ] of [ ...groups ].sort()) {
@@ -114,6 +117,8 @@ for (const [ key, values ] of [ ...groups ].sort()) {
     max('serverMaxCpuPercent').toFixed(2),
     avg('serverAvgRssMb').toFixed(2),
     max('serverMaxRssMb').toFixed(2),
+    max('serverDowntimeCount'),
+    values.map(value => value.serverRecoveryWarning || '').find(Boolean) || '',
   ].join(';'));
 }
 

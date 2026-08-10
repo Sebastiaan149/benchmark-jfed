@@ -73,7 +73,11 @@ function main() {
     throw new Error('Usage: merge-server-resource-summary.js --run-root <watdiv-results/.../cN> --server-resource-file <csv>');
   }
 
-  const summary = readServerResourceSummary(serverResourceFile);
+  const summary = {
+    ...readServerResourceSummary(serverResourceFile),
+    serverDowntimeCount: Number(args['server-downtime-count'] || 0),
+    serverRecoveryWarning: args['server-recovery-warning'] || '',
+  };
   mergeArrayFile(path.join(runRoot, 'summary.json'), summary);
   for (const entry of fs.readdirSync(runRoot, { withFileTypes: true })) {
     if (entry.isDirectory() && entry.name.startsWith('iteration-')) {
