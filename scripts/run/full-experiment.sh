@@ -55,6 +55,9 @@ CLIENT_SSHS="${CLIENT_SSHS:-}"
 ENABLE_CLIENT_NETNS_MONITOR="${ENABLE_CLIENT_NETNS_MONITOR:-1}"
 RETAIN_QUERY_OUTPUTS="${RETAIN_QUERY_OUTPUTS:-0}"
 KEEP_CLIENT_CACHES="${KEEP_CLIENT_CACHES:-0}"
+# The full profile enables this for its concurrent-client benchmark so each
+# concurrency level starts without retained client or filesystem cache state.
+CLEAR_CACHES_BETWEEN_CONCURRENCY="${CLEAR_CACHES_BETWEEN_CONCURRENCY:-0}"
 
 SERVER_STARTUP_SECONDS="${SERVER_STARTUP_SECONDS:-60}"
 SAMPLE_INTERVAL_MS="${SAMPLE_INTERVAL_MS:-1000}"
@@ -172,6 +175,35 @@ remote_export_prefix() {
 remote_client_export_prefix() {
   printf 'WORKSPACE_ROOT=%q BENCHMARK_DIR=%q DATA_ROOT=%q RESULTS_ROOT=%q CONFIG_FILE=%q SERVER_IP=%q NETNS_PREFIX=%q CLIENT_CPU_MAX=%q CLIENT_MEMORY_MAX=%q CLIENT_CGROUP_ROOT=%q RETAIN_QUERY_OUTPUTS=%q KEEP_CLIENT_CACHES=%q ' \
     "$REMOTE_CLIENT_WORKSPACE" "$REMOTE_CLIENT_BENCHMARK_DIR" "$REMOTE_CLIENT_BENCHMARK_DIR/data" "$REMOTE_CLIENT_RESULTS_ROOT" "$REMOTE_CLIENT_BENCHMARK_DIR/config/frameworks.json" "$SERVER_IP" "$NETNS_PREFIX" "$CLIENT_CPU_MAX" "$CLIENT_MEMORY_MAX" "$CLIENT_CGROUP_ROOT" "$RETAIN_QUERY_OUTPUTS" "$KEEP_CLIENT_CACHES"
+}
+
+clear_runtime_caches_between_concurrency_levels() {
+  local size="$1"
+  local framework="$2"
+  local cache="$3"
+  local concurrency="$4"
+  local local_run_root="$RESULTS_ROOT/$size/$framework/$cache/c$concurrency"
+  local remote_run_root="$REMOTE_CLIENT_RESULTS_ROOT/$size/$framework/$cache/c$concurrency"
+
+  echo "==> Clearing disposable caches and filesystem page cache after $framework $size $cache c$concurrency"
+
+  # Keep result CSVs, metrics, logs, and failure records. Only runtime caches
+  # are disposable between concurrency levels.
+  find "$local_run_root" -type d \
+    \( -name home -o -name tmp -o -name .smartkg-cache -o -name .wisekg-cache \) \
+    -prune -exec rm -rf {} + 2>/dev/null || true
+  sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'
+
+  for node in "${CLIENT_NODES[@]}"; do
+    remote_client "$node" "find '$remote_run_root' -type d \\
+      \\( -name home -o -name tmp -o -name .smartkg-cache -o -name .wisekg-cache \\) \\
+      -prune -exec rm -rf {} + 2>/dev/null || true; sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'"
+  done
+
+  # The server is stopped before this function is called. Dropping the page
+  # cache here avoids retaining its dataset and partition files for the next
+  # concurrency level.
+  remote "sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'"
 }
 
 # Read the configured HTTP port for a framework from the benchmark JSON config.
@@ -672,6 +704,9 @@ for size in $SIZES; do
         fi
         if [[ "$RESTART_SERVER_PER_RUN" == "1" ]]; then
           stop_server
+        fi
+        if [[ "$CLEAR_CACHES_BETWEEN_CONCURRENCY" == "1" ]]; then
+          clear_runtime_caches_between_concurrency_levels "$size" "$framework" "$cache" "$concurrency"
         fi
       done
     done

@@ -101,6 +101,7 @@ else
   CONCURRENCY="1 2 4 8 16 32 64" \
   ITERATIONS="1" \
   QUERY_SELECTION="ten" \
+  CLEAR_CACHES_BETWEEN_CONCURRENCY="1" \
     "$SCRIPT_DIR/run-full.sh"
 fi
 

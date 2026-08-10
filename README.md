@@ -162,6 +162,10 @@ The second benchmark writes to `watdiv-results/full/concurrent-limited/`:
 - Ten queries per client: `C1`, `C2`, `F1`, `F2`, `L1`, `L2`, `S1`, `S2`, `S6`, and `S7` (instance 1).
 - Physical client capacities: `22 21 21`.
 - Per logical client: `0.15` CPU core, `896 MiB` RAM, and `20 Mbit/s`.
+- After each completed concurrency level, the controller stops the server,
+  removes disposable client runtime caches, and drops filesystem page cache on
+  every client node and the server. Result CSVs, metrics, logs, and failures
+  remain available for analysis.
 
 For both benchmarks:
 
