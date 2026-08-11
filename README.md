@@ -159,12 +159,12 @@ The second benchmark writes to `watdiv-results/full/concurrent-limited/`:
 
 - Concurrency: `1 2 4 8 16 32 64`.
 - One iteration.
-- Ten queries per client: `C1`, `C2`, `F1`, `F2`, `L1`, `L2`, `S1`, `S2`, `S6`, and `S7` (instance 1).
+- Five queries per client: `C1`, `F1`, `L1`, `S1`, and `S6` (instance 1).
 - Physical client capacities: `22 21 21`.
 - Per logical client: `0.15` CPU core, `896 MiB` RAM, and `20 Mbit/s`.
 - For each dataset size, it runs all frameworks at `1` client before continuing
   with `2`, `4`, `8`, `16`, `32`, and `64` clients; it then moves to the next
-  size. Each client receives the same ten queries in an independently
+  size. Each client receives the same five queries in an independently
   randomized order.
 - After each completed concurrency level, the controller stops the server,
   removes disposable client runtime caches, and drops filesystem page cache on

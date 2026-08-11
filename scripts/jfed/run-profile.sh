@@ -94,13 +94,13 @@ else
   echo "==> Restoring all logical clients at $CLIENT_RATE before the concurrency benchmark"
   TOTAL_CLIENTS="$TOTAL_CLIENTS" CLIENT_RATE="$CLIENT_RATE" "$SCRIPT_DIR/../client/setup-cluster.sh"
 
-  echo "==> Full benchmark 2/2: limited clients, ten queries, one iteration"
+  echo "==> Full benchmark 2/2: limited clients, five queries, one iteration"
   RESULTS_ROOT="$concurrent_results" \
   REMOTE_RESULTS_ROOT="$REMOTE_BENCHMARK_DIR/watdiv-results/full/concurrent-limited" \
   REMOTE_CLIENT_RESULTS_ROOT="$REMOTE_CLIENT_BENCHMARK_DIR/watdiv-results/full/concurrent-limited" \
   CONCURRENCY="1 2 4 8 16 32 64" \
   ITERATIONS="1" \
-  QUERY_SELECTION="ten" \
+  QUERY_SELECTION="five" \
   QUERY_ORDER="random" \
   CONCURRENCY_MAJOR_ORDER="1" \
   CLEAR_CACHES_BETWEEN_CONCURRENCY="1" \
