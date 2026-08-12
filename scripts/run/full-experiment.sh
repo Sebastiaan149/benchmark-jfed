@@ -81,6 +81,8 @@ QUERY_FAILURE_LOG="$RESULTS_ROOT/benchmark-query-failures.csv"
 MAX_MINOR_QUERY_FAILURES="${MAX_MINOR_QUERY_FAILURES:-5}"
 MAX_MINOR_QUERY_FAILURE_PERCENT="${MAX_MINOR_QUERY_FAILURE_PERCENT:-10}"
 failure_count=0
+CANCEL_REQUESTED=0
+CLEANUP_STARTED=0
 if [[ ! -f "$FAILURE_LOG" ]]; then
   echo 'timestamp;runId;phase;size;framework;cacheMode;concurrency;classification;status;resultRoot;serverLog' > "$FAILURE_LOG"
 fi
@@ -603,12 +605,46 @@ archive_server_incident() {
 
 # Always stop the server and monitor on exit so a failed benchmark does not leave
 # a process consuming the server node.
+stop_active_client_workloads() {
+  sudo pkill -TERM -f "$BENCHMARK_DIR/scripts/client/run-slice.sh" >/dev/null 2>&1 || true
+  sudo pkill -TERM -f "$BENCHMARK_DIR/scripts/benchmark/run-benchmark.js" >/dev/null 2>&1 || true
+  sudo pkill -TERM -f "$WORKSPACE_ROOT/comunicaMT/engines/.*/bin/query.js" >/dev/null 2>&1 || true
+
+  for node in "${CLIENT_NODES[@]}"; do
+    remote_client "$node" "sudo pkill -TERM -f '$REMOTE_CLIENT_BENCHMARK_DIR/scripts/client/run-slice.sh' >/dev/null 2>&1 || true; \
+      sudo pkill -TERM -f '$REMOTE_CLIENT_BENCHMARK_DIR/scripts/benchmark/run-benchmark.js' >/dev/null 2>&1 || true; \
+      sudo pkill -TERM -f '$REMOTE_CLIENT_WORKSPACE/comunicaMT/engines/.*/bin/query.js' >/dev/null 2>&1 || true" \
+      >/dev/null 2>&1 || true
+  done
+}
+
 cleanup() {
+  if [[ "$CLEANUP_STARTED" == "1" ]]; then
+    return
+  fi
+  CLEANUP_STARTED=1
   stop_client_monitors
   stop_server_monitor
   stop_server >/dev/null 2>&1 || true
 }
-trap cleanup EXIT INT TERM
+
+cancel_benchmark() {
+  local signal="$1"
+  if [[ "$CANCEL_REQUESTED" == "1" ]]; then
+    return
+  fi
+  CANCEL_REQUESTED=1
+  trap - INT TERM
+  echo >&2
+  echo "Manual $signal received; stopping clients and server without retrying." >&2
+  stop_active_client_workloads
+  cleanup
+  exit 130
+}
+
+trap cleanup EXIT
+trap 'cancel_benchmark SIGINT' INT
+trap 'cancel_benchmark SIGTERM' TERM
 
 run_combination() {
   local size="$1"
@@ -646,11 +682,17 @@ run_combination() {
     fi
     status=$?
     set -e
+    if [[ "$CANCEL_REQUESTED" == "1" ]]; then
+      return 130
+    fi
     stop_client_monitors
     stop_server_monitor
     local_server_metric_files+=("$(pull_server_metrics "$framework" "$size" "$cache" "$concurrency" "$server_metrics_file")")
     if [[ "$status" -eq 0 ]]; then break; fi
     sleep 10
+    if [[ "$CANCEL_REQUESTED" == "1" ]]; then
+      return 130
+    fi
     if server_process_is_alive && ! server_log_reports_crash "$framework" "$size"; then
       query_failures="$((query_failures + 1))"
       echo "Query failed but $framework server remains available; skipping it and continuing." >&2
