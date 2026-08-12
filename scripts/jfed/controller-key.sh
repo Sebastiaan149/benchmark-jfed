@@ -22,6 +22,10 @@ case "$ACTION" in
     read -r -a remote_clients <<< "$CLIENT_SSHS"
     targets+=("${remote_clients[@]}")
     for target in "${targets[@]}"; do
+      if [[ ! "$target" =~ ^[a-zA-Z0-9._-]+@[^[:space:]@]+$ ]]; then
+        echo "Invalid SSH target from config/cluster.env: $target" >&2
+        exit 1
+      fi
       host="${target#*@}"
       ssh-keygen -R "$host" >/dev/null 2>&1 || true
       ssh-keyscan -H "$host" >> "$HOME/.ssh/known_hosts" 2>/dev/null

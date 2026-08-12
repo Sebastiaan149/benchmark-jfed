@@ -1,72 +1,70 @@
 # jFed WatDiv Benchmark
 
-This repository runs the WatDiv benchmark on four Virtual Wall 1 bare-metal nodes:
+Runs the WatDiv benchmark on four Virtual Wall 1 Ubuntu 24.04 nodes:
 
-| Node | Hardware | Experiment IP | Role |
-| --- | --- | --- | --- |
-| `server0` | `pcgen07-1p` | `10.0.1.2` | Generates data and runs one server at a time |
-| `client0` | `pcgen07-1p` | `10.0.1.11` | Controller and logical client IDs 1-22 |
-| `client1` | `pcgen07-1p` | `10.0.1.12` | Logical client IDs 23-43 |
-| `client2` | `pcgen07-1p` | `10.0.1.13` | Logical client IDs 44-64 |
+| Node | IP | Role |
+| --- | --- | --- |
+| `server0` | `10.0.1.2` | Data preparation and benchmark servers |
+| `client0` | `10.0.1.11` | Controller and clients 1-22 |
+| `client1` | `10.0.1.12` | Clients 23-43 |
+| `client2` | `10.0.1.13` | Clients 44-64 |
 
-All four nodes use Ubuntu 24.04 and one uncapped experiment LAN. Only `client0` needs to clone this repository. There are no execution notebooks.
+Run all commands below from an SSH terminal on `client0`. The repository is
+named `benchmark-jfed`, not `jfed-benchmark`.
 
-## 1. Create The jFed Experiment
+## 1. Create The Cluster
 
-1. Open jFed Experimenter.
-2. Load [`rspec/wall1-four-pcgen07-1p-ubuntu24.rspec`](rspec/wall1-four-pcgen07-1p-ubuntu24.rspec).
-3. Verify that it shows four exclusive `pcgen07-1p` raw PCs and one LAN.
-4. Start the experiment and wait until all nodes are ready.
-5. Open an SSH terminal to `client0`.
+In jFed Experimenter, load
+[`rspec/wall1-four-pcgen07-1p-ubuntu24.rspec`](rspec/wall1-four-pcgen07-1p-ubuntu24.rspec),
+start the experiment, and wait for all four nodes.
 
-The RSpec requests `pcgen07-1p` explicitly. It does not contain a substitute hardware type or VM fallback.
-
-## 2. Clone On client0
-
-On `client0`, run:
+## 2. Clone The Benchmark
 
 ```bash
-sudo mkdir -p /local/masterproef_repos
-sudo chown "$(id -un):$(id -gn)" /local/masterproef_repos
+sudo install -d -o "$(id -un)" -g "$(id -gn)" /local/masterproef_repos
 git clone https://github.com/Sebastiaan149/benchmark-jfed.git /local/masterproef_repos/benchmark-jfed
 cd /local/masterproef_repos/benchmark-jfed
 ```
 
-## 3. Authorize client0
-
-Generate a controller key and print the authorization command:
+## 3. Configure Cluster SSH
 
 ```bash
-cd /local/masterproef_repos/benchmark-jfed
 ./scripts/jfed/controller-key.sh generate
 ```
 
-Open jFed SSH terminals to `server0`, `client1`, and `client2`. Paste the printed command into each of those three terminals. Then verify from `client0`:
+Paste the printed authorization command into separate jFed SSH terminals for
+`server0`, `client1`, and `client2`. Then verify from `client0`:
 
 ```bash
 ./scripts/jfed/controller-key.sh verify
 ```
 
-The verification must reach all three nodes and confirm passwordless `sudo` before deployment continues.
+## 4. Install And Verify
 
-## 4. Deploy And Install
-
-Run on `client0`:
+This deploys the benchmark and installs the server/client software on every
+node:
 
 ```bash
 cd /local/masterproef_repos/benchmark-jfed
 ./scripts/jfed/deploy-cluster.sh
 ```
 
-This command:
+To rerun only the local `client0` setup:
 
-- Copies this repository from `client0` to the other three nodes.
-- Installs Node.js 20, Yarn, Java 21, Maven, Docker, HDT build tools, network tools, measurement tools, Python analysis packages, and system dependencies.
-- Clones and builds all server repositories only on `server0`.
-- Clones and builds Comunica on the three client nodes.
-- Verifies six CPU cores, at least 60 GB RAM, cgroup v2, required commands, LAN reachability, Comunica HDT support, Java, Maven, and Docker.
+```bash
+cd /local/masterproef_repos/benchmark-jfed
+./scripts/setup/client.sh
+```
 
-To synchronize later benchmark-script changes without reinstalling repositories, run on `client0`:
+Verify the cluster at any time with:
+
+```bash
+./scripts/jfed/verify-cluster.sh
+```
+
+## 5. Update The Cluster
+
+Synchronize committed benchmark changes from `client0` to the other nodes:
 
 ```bash
 cd /local/masterproef_repos/benchmark-jfed
@@ -74,159 +72,81 @@ git pull --ff-only
 ./scripts/jfed/sync-benchmark.sh
 ```
 
-If a previous build left modified or generated files in one of the cloned repositories, perform a clean workspace reinstall. This removes all repositories, prepared data, logs, and results under `/local/masterproef_repos`, but keeps the controller SSH key in `~/.ssh`.
-
-First remove the remote workspaces from `client0`:
+After pushing Comunica changes, pull and rebuild Comunica on every client:
 
 ```bash
 cd /local/masterproef_repos/benchmark-jfed
+./scripts/jfed/sync-benchmark.sh
+./scripts/setup/client.sh
+
 source config/cluster.env
-
-for host in "$SERVER_SSH" $CLIENT_SSHS; do
-  ssh "$host" '
-    sudo rm -rf /local/masterproef_repos
-    sudo install -d -o "$(id -un)" -g "$(id -gn)" /local/masterproef_repos
-  '
+for target in $CLIENT_SSHS; do
+  ssh -o BatchMode=yes "$target" \
+    "cd '$REMOTE_CLIENT_BENCHMARK_DIR' && ./scripts/setup/client.sh"
 done
+
+./scripts/jfed/verify-cluster.sh
 ```
 
-Then recreate the workspace on `client0` and deploy again:
+## 6. Run The 1M Cold-Cache Check
 
-```bash
-cd /local
-sudo rm -rf /local/masterproef_repos
-sudo install -d -o "$(id -un)" -g "$(id -gn)" /local/masterproef_repos
-git clone https://github.com/Sebastiaan149/benchmark-jfed.git /local/masterproef_repos/benchmark-jfed
-cd /local/masterproef_repos/benchmark-jfed
-./scripts/jfed/controller-key.sh verify
-./scripts/jfed/deploy-cluster.sh
-```
-
-Reprovision the nodes through jFed instead when the operating system and installed packages must also be reset.
-
-## 5. One-Client 1M Check
-
-First prepare only the 1M dataset on `server0`:
+Prepare the data, then run one unrestricted client using only SmartKG,
+SmartKG+, WiseKG, and SPF:
 
 ```bash
 cd /local/masterproef_repos/benchmark-jfed
 ./scripts/jfed/prepare-data.sh smoke-1m
+
+FRAMEWORKS="smartkg smartkg-plus wisekg spf" \
+CACHE_MODES="cold" \
+  ./scripts/jfed/run-profile.sh smoke-1m
 ```
 
-Then run every configured framework with one logical client, one iteration, and the five selected WatDiv queries:
-
-```bash
-./scripts/jfed/run-profile.sh smoke-1m
-```
-
-This profile creates only logical client ID 1 on `client0`. It does not start clients on `client1` or `client2` and does not run the 64-stream network calibration.
-
-Analyze and package the smoke results:
+Analyze and package the results:
 
 ```bash
 ./scripts/jfed/analyze-results.sh smoke-1m
 ./scripts/jfed/pack-results.sh
 ```
 
-Inspect `watdiv-results/smoke-1m/averages.csv`, `report-summary.csv`, and `plots/` before starting the full experiment.
+Download the archive from `downloads/` before deleting any results.
 
-## 6. Full Benchmark
+## 7. Remove The 1M Check Results
 
-Prepare 1M, 10M, 50M, and 100M sequentially on `server0`:
+After confirming the archive was downloaded:
+
+```bash
+cd /local/masterproef_repos/benchmark-jfed
+source config/cluster.env
+
+sudo rm -rf "$BENCHMARK_DIR/watdiv-results/smoke-1m"
+for target in "$SERVER_SSH" $CLIENT_SSHS; do
+  ssh -o BatchMode=yes "$target" \
+    "sudo rm -rf '$REMOTE_BENCHMARK_DIR/watdiv-results/smoke-1m'"
+done
+```
+
+This removes smoke results only; it keeps the prepared dataset.
+
+## 8. Run The Full Benchmark
 
 ```bash
 cd /local/masterproef_repos/benchmark-jfed
 ./scripts/jfed/prepare-data.sh full
-```
-
-Run the full benchmark:
-
-```bash
 ./scripts/jfed/run-profile.sh full
-```
-
-The full profile removes earlier `full/` results and then runs two benchmarks over `1m 10m 50m 100m`. Both include the existing query timing, result count, client/server CPU and RAM, and per-client network measurements.
-
-The first benchmark writes to `watdiv-results/full/single-unlimited/`:
-
-- One logical client on `client0`.
-- One iteration.
-- 50 queries: the first 50 queries from the deterministic 100-query selection.
-- No client CPU or cgroup RAM limit; the client may use all six cores and available memory.
-- The logical client link is limited to `100 Mbit/s`.
-
-The second benchmark writes to `watdiv-results/full/concurrent-limited/`:
-
-- Concurrency: `1 2 4 8 16 32 64`.
-- One iteration.
-- Five queries per client: `C1`, `F1`, `L1`, `S1`, and `S6` (instance 1).
-- Physical client capacities: `22 21 21`.
-- Per logical client: `0.15` CPU core, `896 MiB` RAM, and `20 Mbit/s`.
-- For each dataset size, it runs all frameworks at `1` client before continuing
-  with `2`, `4`, `8`, `16`, `32`, and `64` clients; it then moves to the next
-  size. Each client receives the same five queries in an independently
-  randomized order.
-- After each completed concurrency level, the controller stops the server,
-  removes disposable client runtime caches, and drops filesystem page cache on
-  every client node and the server. Result CSVs, metrics, logs, and failures
-  remain available for analysis.
-
-For both benchmarks:
-
-- SmartKG, SmartKG+, and WiseKG: cold and warm cache runs.
-- `ldf-endpoint`: one Node.js worker for all sizes and both benchmark modes, preventing multiple 50M/100M NT query heaps from exhausting the 62 GiB server.
-- Warm-cache queries run before server and network monitoring starts; only the following measured queries contribute metrics.
-- Other frameworks: cold cache runs.
-- One server process at a time, with the previous process fully stopped before the next starts.
-- Timeout-only combinations and a small minority of failed queries are retained in `benchmark-attempt-failures.csv` and detailed in `benchmark-query-failures.csv`.
-- If a server exits during a workload, its log is archived under `logs/jfed/incidents/`, the interrupted query remains a failed result, and the unchanged server is restarted. Recorded query indices are skipped so execution resumes with the remaining queries. Every occurrence increments `serverDowntimeCount`.
-
-Before the query matrix, three simultaneous `iperf3` tests use 22, 21, and 21 streams and write their results under `watdiv-results/full/calibration/`.
-
-Analyze and package the full results:
-
-```bash
 ./scripts/jfed/analyze-results.sh full
 ./scripts/jfed/pack-results.sh
 ```
 
-Download the resulting archive from `benchmark-jfed/downloads/` through jFed or SCP before releasing the experiment.
+The full profile runs:
 
-## Data And Storage
+- One unrestricted client with 50 queries.
+- `1, 2, 4, 8, 16, 32, 64` limited concurrent clients with five queries each.
+- Dataset sizes `1M`, `10M`, `50M`, and `100M`.
 
-The server preparation pipeline generates WatDiv NT, dataset HDT and index, characteristic sets, regular partitions, typed partitions, and the Passage journal. It uses the original `getFamilies` partitioning only.
+Results are stored in `watdiv-results/full/`; the downloadable archive is
+created in `downloads/`.
 
-- SmartKG and WiseKG use `partitioning/`.
-- SmartKG+ uses `typed-partitioning/`.
-- Each partition `.nt` file is deleted after its indexed HDT conversion succeeds; complete metadata validation follows conversion.
-- `dataset.nt` remains for endpoint serving, class extraction, and Passage preparation.
-- There is no NT-dump benchmark; local dump querying uses HDT.
-- Preparation requires at least 350 GiB free before starting 100M.
-- Every physical client has roughly 469 GiB usable SSD storage. A maximum of 22 simultaneous 100M HDT downloads is expected to require roughly 14 GB, and the actual file-size preflight remains authoritative.
+## 9. Finish
 
-## Measurements And Results
-
-All results remain under `benchmark-jfed/watdiv-results/` on `client0`:
-
-- `smoke-1m/`: one-client validation results.
-- `full/single-unlimited/`: one-iteration, 50-query unrestricted single-client results.
-- `full/concurrent-limited/`: one-iteration limited concurrency-matrix results.
-- `full/combined-*.csv`: analysis tables combining both full benchmarks with a `benchmark` column.
-- `query-times.csv`: time to first result, complete response time, result count, process-tree CPU, and RSS.
-- `client-netns.csv`: RX/TX bytes and packet counters for each logical client.
-- `server-metrics/`: server process-tree CPU and RAM samples.
-- `averages.csv`: iteration-level aggregates.
-- `network-averages.csv`: aggregate bytes, packets, and throughput.
-- `network-clients.csv`: network measurements per logical client.
-- `benchmark-attempt-failures.csv`: failed benchmark combinations and whether they were recoverable or fatal.
-- `benchmark-query-failures.csv`: individual failed queries with timeout, exit, signal, stderr, and server-log references.
-- `benchmark-server-incidents.csv`: every unexpected server exit, restart, and archived pre-restart log.
-- `serverDowntimeCount` and `serverRecoveryWarning`: incident fields included in `averages.csv` and `report-summary.csv`.
-- `dataset-statistics.csv`: triple, regular-partition, and typed-partition counts per dataset size.
-- `plots/` and `report-summary.csv`: terminal-generated analysis output.
-
-The scripts use monotonic Node.js timing, process-tree sampling, cgroup v2, network namespaces, interface counters, `tc`, `iptables`, `iperf3`, `sysstat`, and `tcpdump`.
-
-## Release The Experiment
-
-After downloading the result archive, stop or delete the experiment in jFed Experimenter. Resource release is intentionally not performed by a shell script.
+Download the result archive, then stop or delete the experiment in jFed.
