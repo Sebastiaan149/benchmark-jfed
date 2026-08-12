@@ -25,7 +25,7 @@ function walk(dir) {
 function summarize(file) {
   const runSummaryFile = path.join(path.dirname(file), 'summary.json');
   if (!fs.existsSync(runSummaryFile)) {
-    throw new Error(`Missing run summary for network measurements: ${runSummaryFile}`);
+    return null;
   }
   const runSummaries = JSON.parse(fs.readFileSync(runSummaryFile, 'utf8'));
   const iterations = Array.isArray(runSummaries) ? runSummaries.length : 1;
@@ -78,6 +78,12 @@ for (const file of walk(resultsRoot)) {
   }
   const key = rel.slice(0, 4).join(';');
   const summary = summarize(file);
+  // Interrupted or selectively deleted runs can leave client-netns.csv files
+  // without a corresponding completed summary. They are not valid benchmark
+  // measurements and must not prevent aggregation of the completed runs.
+  if (!summary) {
+    continue;
+  }
   const bucket = groups.get(key) || [];
   bucket.push(summary.totals);
   groups.set(key, bucket);
