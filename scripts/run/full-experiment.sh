@@ -391,6 +391,22 @@ client_run_root() {
   echo "$root"
 }
 
+ensure_client_run_root() {
+  local framework="$1"
+  local size="$2"
+  local cache="$3"
+  local concurrency="$4"
+  local run_root
+  run_root="$(client_run_root "$framework" "$size" "$cache" "$concurrency" "")"
+
+  # A previous privileged slice may have created this shared parent as root.
+  # Normalize it before local and remote node-specific result directories are
+  # created. This is intentionally non-recursive: each slice restores ownership
+  # of its own files when it exits.
+  sudo mkdir -p "$run_root"
+  sudo chown "$(id -u):$(id -g)" "$run_root"
+}
+
 start_client_monitors() {
   local framework="$1"
   local size="$2"
@@ -503,12 +519,6 @@ run_client_workload() {
   local concurrency="$4"
   local workload_phase="${5:-both}"
   local resume="${6:-0}"
-
-  # Create the shared parent as the controller user before run-slice.sh is
-  # launched through sudo. Otherwise the local slice creates c$concurrency as
-  # root, and the controller cannot create sibling directories while pulling
-  # results from remote client nodes.
-  mkdir -p "$(client_run_root "$framework" "$size" "$cache" "$concurrency" "")"
 
   if ! use_remote_clients; then
     run_local_client_slice "$framework" "$size" "$cache" "$concurrency" \
@@ -657,6 +667,7 @@ run_combination() {
   local framework="$2"
   local cache="$3"
   local concurrency="$4"
+  ensure_client_run_root "$framework" "$size" "$cache" "$concurrency"
   if [[ "$RESTART_SERVER_PER_RUN" == "1" ]]; then
     start_server "$framework" "$size"
   fi
