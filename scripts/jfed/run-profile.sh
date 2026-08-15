@@ -78,14 +78,14 @@ else
     NAMESPACE_LATENCY_MS="$NAMESPACE_LATENCY_MS" \
       "$SCRIPT_DIR/../client/setup-netns.sh"
 
-  echo "==> Full benchmark 1/2: one unlimited client, 50 queries, one iteration, 100 Mbit/s"
+  echo "==> Full benchmark 1/2: one unlimited client, 20 template queries, one iteration, 100 Mbit/s"
   RESULTS_ROOT="$single_results" \
   REMOTE_RESULTS_ROOT="$REMOTE_BENCHMARK_DIR/watdiv-results/full/single-unlimited" \
   REMOTE_CLIENT_RESULTS_ROOT="$REMOTE_CLIENT_BENCHMARK_DIR/watdiv-results/full/single-unlimited" \
   CONCURRENCY="1" \
   ITERATIONS="1" \
-  QUERY_SELECTION="hundred" \
-  QUERY_LIMIT="50" \
+  QUERY_SELECTION="twenty" \
+  QUERY_LIMIT="20" \
   CLIENT_CPU_MAX="max" \
   CLIENT_MEMORY_MAX="max" \
   CLIENT_NODE_OPTIONS="--max-old-space-size=57344" \
@@ -104,6 +104,7 @@ else
   QUERY_ORDER="random" \
   CONCURRENCY_MAJOR_ORDER="1" \
   CLEAR_CACHES_BETWEEN_CONCURRENCY="1" \
+  FRAMEWORKS="smartkg smartkg-cache smartkg-plus smartkg-plus-cache wisekg wisekg-cache passage passage-cache spf spf-cache ldf-endpoint ldf-endpoint-cache ldf-tpf ldf-tpf-cache ldf-qpf ldf-qpf-cache ldf-brtpf ldf-brtpf-cache ldf-dump-hdt" \
     "$SCRIPT_DIR/run-full.sh"
 fi
 

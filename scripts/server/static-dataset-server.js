@@ -8,6 +8,8 @@ const { pipeline } = require('stream');
 
 const dataDir = process.env.WATDIV_DATA_DIR || process.argv[2];
 const port = Number(process.env.PORT || process.argv[3] || 18089);
+const activeTransferFile = process.env.WATDIV_ACTIVE_TRANSFER_FILE;
+let activeTransfers = 0;
 
 if (!dataDir) {
   console.error('Usage: static-dataset-server.js <data-dir> [port]');
@@ -18,6 +20,16 @@ const routes = new Map([
   [ '/hdt/dataset.hdt', { file: path.join(dataDir, 'dataset.hdt'), type: 'application/x-hdt' }],
   [ '/hdt/dataset.hdt.index.v1-1', { file: path.join(dataDir, 'dataset.hdt.index.v1-1'), type: 'application/octet-stream' }],
 ]);
+
+function updateActiveTransfers(delta) {
+  activeTransfers = Math.max(0, activeTransfers + delta);
+  if (activeTransferFile) {
+    fs.mkdirSync(path.dirname(activeTransferFile), { recursive: true });
+    fs.writeFileSync(activeTransferFile, `${activeTransfers}\n`);
+  }
+}
+
+updateActiveTransfers(0);
 
 function send(response, status, text) {
   response.writeHead(status, {
@@ -53,7 +65,18 @@ http.createServer((request, response) => {
       response.end();
       return;
     }
+    updateActiveTransfers(1);
+    let finished = false;
+    const finishTransfer = () => {
+      if (!finished) {
+        finished = true;
+        updateActiveTransfers(-1);
+      }
+    };
+    response.once('close', finishTransfer);
+    response.once('finish', finishTransfer);
     pipeline(fs.createReadStream(route.file), response, (streamError) => {
+      finishTransfer();
       if (streamError && !response.destroyed) {
         response.destroy(streamError);
       }

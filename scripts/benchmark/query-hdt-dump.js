@@ -7,7 +7,6 @@ const path = require('path');
 const { once } = require('events');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
-const { QueryEngine } = require('@comunica/query-sparql-hdt');
 
 async function download(url, destination) {
   const response = await fetch(url);
@@ -33,9 +32,12 @@ async function writeBinding(binding) {
 }
 
 async function main() {
-  const [ source, query ] = process.argv.slice(2);
-  if (!source || !query) {
-    throw new Error('Usage: query-hdt-dump.js <dataset-hdt-url> <SPARQL-query>');
+  const [ first, second ] = process.argv.slice(2);
+  const prepareOnly = first === '--prepare';
+  const source = prepareOnly ? second : first;
+  const query = prepareOnly ? undefined : second;
+  if (!source || (!prepareOnly && !query)) {
+    throw new Error('Usage: query-hdt-dump.js [--prepare] <dataset-hdt-url> [SPARQL-query]');
   }
   const sourceUrl = new URL(source);
   if (sourceUrl.protocol !== 'http:' && sourceUrl.protocol !== 'https:') {
@@ -48,22 +50,36 @@ async function main() {
   const workDir = path.join(process.env.TMPDIR, 'hdt-dump');
   const hdtFile = path.join(workDir, 'dataset.hdt');
   const indexFile = `${hdtFile}.index.v1-1`;
-  await fsPromises.rm(workDir, { recursive: true, force: true });
-  await fsPromises.mkdir(workDir, { recursive: true });
-
-  try {
-    await download(sourceUrl.href, hdtFile);
-    await download(`${sourceUrl.href}.index.v1-1`, indexFile);
-
-    const engine = new QueryEngine();
-    const bindings = await engine.queryBindings(query, {
-      sources: [{ type: 'hdt', value: hdtFile }],
-    });
-    for await (const binding of bindings) {
-      await writeBinding(binding);
+  const completeFile = path.join(workDir, '.complete');
+  if (prepareOnly) {
+    const prepared = await Promise.all([ hdtFile, indexFile, completeFile ]
+      .map(file => fsPromises.stat(file).then(stat => stat.isFile()).catch(() => false)));
+    if (prepared.every(Boolean)) {
+      return;
     }
-  } finally {
     await fsPromises.rm(workDir, { recursive: true, force: true });
+    await fsPromises.mkdir(workDir, { recursive: true });
+    await download(sourceUrl.href, `${hdtFile}.partial`);
+    await download(`${sourceUrl.href}.index.v1-1`, `${indexFile}.partial`);
+    await fsPromises.rename(`${hdtFile}.partial`, hdtFile);
+    await fsPromises.rename(`${indexFile}.partial`, indexFile);
+    await fsPromises.writeFile(completeFile, 'complete\n');
+    return;
+  }
+
+  for (const file of [ hdtFile, indexFile, completeFile ]) {
+    const stat = await fsPromises.stat(file).catch(() => undefined);
+    if (!stat?.isFile()) {
+      throw new Error(`Prepared HDT dump is missing: ${file}. Run with --prepare before executing queries.`);
+    }
+  }
+  const { QueryEngine } = require('@comunica/query-sparql-hdt');
+  const engine = new QueryEngine();
+  const bindings = await engine.queryBindings(query, {
+    sources: [{ type: 'hdt', value: hdtFile }],
+  });
+  for await (const binding of bindings) {
+    await writeBinding(binding);
   }
 }
 

@@ -34,6 +34,7 @@ server_packages=(
   libserd-dev
   libtool
   maven
+  nginx
   openjdk-21-jdk
   pkg-config
   python3-pip

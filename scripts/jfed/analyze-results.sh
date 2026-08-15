@@ -12,4 +12,5 @@ case "$PROFILE" in
     ;;
 esac
 
+node "$SCRIPT_DIR/../analysis/aggregate-nginx-cache.js" "$SCRIPT_DIR/../../watdiv-results/$PROFILE"
 python3 "$SCRIPT_DIR/../analysis/plot-results.py" "$PROFILE"

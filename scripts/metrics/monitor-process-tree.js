@@ -107,6 +107,7 @@ async function main() {
   const pid = Number(args.pid);
   const output = args.out;
   const intervalMs = Number(args.interval || 1_000);
+  const activeFile = args['active-file'];
 
   if (!pid || !output) {
     throw new Error('Usage: monitor-process-tree.js --pid <pid> --out <file> [--interval 1000]');
@@ -125,7 +126,17 @@ async function main() {
 
   while (!stop) {
     const current = await sample(pid);
-    fs.appendFileSync(output, `${csvLine(current)}\n`);
+    let active = !activeFile;
+    if (activeFile) {
+      try {
+        active = Number(fs.readFileSync(activeFile, 'utf8').trim() || 0) > 0;
+      } catch {
+        active = false;
+      }
+    }
+    if (active) {
+      fs.appendFileSync(output, `${csvLine(current)}\n`);
+    }
     if (current.processCount === 0) {
       break;
     }

@@ -55,7 +55,7 @@ write_java_config() {
   local dataset_file="$5"
   local cspath="${6:-}"
   local output="$7"
-  node - "$name" "$datasource" "$metadata_path" "$molecules_path" "$dataset_file" "$cspath" "$output" "$PORT" "${SERVER_IP:-localhost}" <<'NODE'
+  node - "$name" "$datasource" "$metadata_path" "$molecules_path" "$dataset_file" "$cspath" "$output" "${ADVERTISED_PORT:-$PORT}" "${SERVER_IP:-localhost}" <<'NODE'
 const fs = require('fs');
 const [ name, datasource, metadataPath, moleculesPath, datasetFile, csPath, output, port, serverHost ] = process.argv.slice(2);
 const config = {
@@ -238,6 +238,9 @@ check_framework_requirements
 export NODE_OPTIONS="${NODE_OPTIONS:-$(node_options)}"
 
 case "$SERVER_KIND" in
+  nginx-fragment-cache)
+    exec "$SCRIPT_DIR/start-nginx-cached-server.sh" "$FRAMEWORK" "$SIZE"
+    ;;
   original-smartkg-server)
     cfg="$CONFIG_OUT/smartkg.json"
     write_java_config "SmartKG" "smartkg" "$DATA_DIR_FOR_SIZE/$SMARTKG_PARTITIONING_DIR/metadata.json" "$DATA_DIR_FOR_SIZE/$SMARTKG_PARTITIONING_DIR/hdt" "$DATA_DIR_FOR_SIZE/dataset.hdt" "" "$cfg"
@@ -287,6 +290,7 @@ case "$SERVER_KIND" in
     exec node packages/server/bin/ldf-server "$cfg" "$PORT" "$WORKERS"
     ;;
   static-hdt-dump)
+    export WATDIV_ACTIVE_TRANSFER_FILE="$TMP_ROOT/hdt-dump-active-transfers"
     exec node "$SCRIPT_DIR/static-dataset-server.js" "$DATA_DIR_FOR_SIZE" "$PORT"
     ;;
   unsupported)

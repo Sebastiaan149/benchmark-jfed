@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFile, spawn } = require('child_process');
 const { performance } = require('perf_hooks');
+const { FirstResultDetector, ResultLineCounter } = require('./first-result-detector');
 
 const benchRoot = path.resolve(__dirname, '..', '..');
 const root = path.resolve(benchRoot, '..');
@@ -267,21 +268,23 @@ function startResourceSampler(pid, intervalMs) {
   };
 }
 
-function runCommand(command, args, options, timeoutMs, sampleIntervalMs, applyResourceControl, retainStdout) {
+function runCommand(command, args, options, timeoutMs, sampleIntervalMs, applyResourceControl, retainStdout,
+  measureResources = true) {
   return new Promise((resolve) => {
     const started = performance.now();
     const child = spawn(command, args, options);
     if (applyResourceControl) {
       applyResourceControl(child.pid);
     }
-    const sampler = startResourceSampler(child.pid, sampleIntervalMs);
+    const sampler = measureResources ? startResourceSampler(child.pid, sampleIntervalMs) : undefined;
     let stdout = '';
     let stderr = '';
     let timedOut = false;
     let firstResultTimeMs;
-    let stdoutNewlines = 0;
-    let stdoutHasData = false;
-    let stdoutEndsWithNewline = false;
+    const resultCounter = new ResultLineCounter();
+    const firstResultDetector = new FirstResultDetector(() => {
+      firstResultTimeMs = Math.round(performance.now() - started);
+    });
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGTERM');
@@ -289,14 +292,8 @@ function runCommand(command, args, options, timeoutMs, sampleIntervalMs, applyRe
     }, timeoutMs);
     child.stdout.on('data', (chunk) => {
       const text = String(chunk);
-      if (firstResultTimeMs === undefined && text.length > 0) {
-        firstResultTimeMs = Math.round(performance.now() - started);
-      }
-      if (text.length > 0) {
-        stdoutHasData = true;
-        stdoutNewlines += (text.match(/\n/gu) || []).length;
-        stdoutEndsWithNewline = text.endsWith('\n');
-      }
+      firstResultDetector.push(text);
+      resultCounter.push(text);
       if (retainStdout) {
         stdout += text;
       }
@@ -304,14 +301,14 @@ function runCommand(command, args, options, timeoutMs, sampleIntervalMs, applyRe
     child.stderr.on('data', chunk => stderr += chunk);
     child.on('close', async(status, signal) => {
       clearTimeout(timer);
-      const resourceSummary = await sampler.stop();
+      const resourceSummary = sampler ? await sampler.stop() : summarizeResourceSamples([]);
       const timeMs = Math.round(performance.now() - started);
-      const resultCount = stdoutNewlines + (stdoutHasData && !stdoutEndsWithNewline ? 1 : 0);
+      const resultCount = resultCounter.finish();
       resolve({ status, signal, timedOut, stdout, stderr, timeMs, firstResultTimeMs, resultCount, resourceSummary });
     });
     child.on('error', async(error) => {
       clearTimeout(timer);
-      const resourceSummary = await sampler.stop();
+      const resourceSummary = sampler ? await sampler.stop() : summarizeResourceSamples([]);
       resolve({
         status: -1,
         signal: undefined,
@@ -320,7 +317,7 @@ function runCommand(command, args, options, timeoutMs, sampleIntervalMs, applyRe
         stderr: `${stderr}${error.stack || error.message}\n`,
         timeMs: Math.round(performance.now() - started),
         firstResultTimeMs,
-        resultCount: stdoutNewlines + (stdoutHasData && !stdoutEndsWithNewline ? 1 : 0),
+        resultCount: resultCounter.finish(),
         resourceSummary,
       });
     });
@@ -374,6 +371,26 @@ async function runClient({
     TMPDIR: path.join(clientDir, 'tmp'),
     NODE_OPTIONS: process.env.NODE_OPTIONS || `--max-old-space-size=${config.resources.clientNodeMaxOldSpaceSizeMb}`,
   };
+
+  // HDT dump traffic belongs to the iteration's network measurement, but its
+  // CPU/RAM does not belong to any query. Prepare one private copy now and let
+  // every query in this client/iteration reuse it.
+  if (frameworkConfig.clientMode === 'hdt-download') {
+    const command = netnsPrefix ? 'ip' : 'node';
+    const commandArgs = netnsPrefix ?
+      [ 'netns', 'exec', `${netnsPrefix}${globalClientId}`, 'node', engineBin, '--prepare', source ] :
+      [ engineBin, '--prepare', source ];
+    const preparation = await runCommand(command, commandArgs, { cwd: clientDir, env }, timeoutMs,
+      sampleIntervalMs, createResourceController({
+        cgroupRoot,
+        groupName: `client-${globalClientId}`,
+        cpuMax: clientCpuMax,
+        memoryMax: clientMemoryMax,
+      }), false, false);
+    if (preparation.status !== 0 || preparation.timedOut) {
+      throw new Error(`HDT dump preparation failed for client ${globalClientId}: ${preparation.stderr.trim()}`);
+    }
+  }
 
   async function runPass(phase) {
     const rows = [];
@@ -456,7 +473,7 @@ async function runClient({
     }
     return await runPass('measured');
   } finally {
-    if (!keepClientCaches) {
+    if (!keepClientCaches && frameworkConfig.clientMode !== 'hdt-download') {
       removeClientCaches(clientDir);
     }
   }
@@ -719,6 +736,13 @@ async function main() {
     };
     fs.writeFileSync(path.join(iterationDir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
     allSummaries.push(summary);
+    if (frameworkConfig.clientMode === 'hdt-download' &&
+      attemptRows.every(row => row.status === 0 && !row.timedOut)) {
+      for (let clientId = 1; clientId <= concurrency; clientId++) {
+        const globalClientId = clientId + clientIdOffset;
+        removeDir(path.join(iterationDir, 'clients', `client-${globalClientId}`, 'tmp', 'hdt-dump'));
+      }
+    }
     console.log(`${framework} ${size} ${cacheMode} c${concurrency} iteration ${iteration}: avg=${Math.round(summary.averageTimeMs)}ms failures=${summary.failures}`);
   }
 

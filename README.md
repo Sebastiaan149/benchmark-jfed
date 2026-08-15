@@ -140,9 +140,30 @@ cd /local/masterproef_repos/benchmark-jfed
 
 The full profile runs:
 
-- One unrestricted client with 50 queries.
+- One unrestricted client with all 20 template queries.
 - `1, 2, 4, 8, 16, 32, 64` limited concurrent clients with five queries each.
 - Dataset sizes `1M`, `10M`, `50M`, and `100M`.
+
+Each limited logical client receives the same cgroup limits: 0.25 CPU core and
+2 GiB RAM, with a 1536 MiB Node.js old-space limit. At the largest 22-client
+node allocation this reserves at most 5.5 of 6 cores and 44 of 56 GiB, leaving
+capacity for the operating system and benchmark controller.
+
+The concurrency profile additionally runs a cold-on-start nginx reverse-cache
+partner for every network framework except `ldf-dump-hdt`. It uses the request
+method, URI, request body, `Accept`, and content type as its cache key, locks
+simultaneous cache misses, and
+records nginx `HIT`, `MISS`, and related statuses in run-labelled access logs.
+GET, HEAD, and POST responses are cacheable; other methods are proxied without
+caching. The single-client performance profile continues to use only uncached
+variants. Analysis writes per-framework request counts, HIT/MISS totals, and hit
+ratios to `nginx-cache-stats.csv`.
+
+For `ldf-dump-hdt`, each logical client downloads the HDT file and index once
+per iteration and reuses that private copy for every query in the iteration.
+Namespace network monitoring includes the download and query execution. Client
+CPU/RAM query samples begin after preparation, and static-server CPU/RAM samples
+are retained only while at least one HDT response body is being transferred.
 
 Results are stored in `watdiv-results/full/`; the downloadable archive is
 created in `downloads/`.

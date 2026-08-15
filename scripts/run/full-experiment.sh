@@ -279,9 +279,10 @@ show_server_diagnostics() {
 start_server() {
   local framework="$1"
   local size="$2"
+  local server_run_label="${3:-$RUN_ID}"
   stop_server
   echo "==> Starting server framework=$framework size=$size"
-  remote "cd '$REMOTE_WORKSPACE' && $(remote_export_prefix) FRAMEWORK='$framework' SIZE='$size' ./benchmark-jfed/scripts/server/start-controlled.sh"
+  remote "cd '$REMOTE_WORKSPACE' && $(remote_export_prefix) FRAMEWORK='$framework' SIZE='$size' SERVER_RUN_LABEL='$server_run_label' ./benchmark-jfed/scripts/server/start-controlled.sh"
   wait_for_server "$framework" "$size"
 }
 
@@ -299,7 +300,11 @@ start_server_monitor() {
   local concurrency="$4"
   local attempt="${5:-1}"
   local remote_file="$REMOTE_SERVER_METRICS_ROOT/$size/$framework/$cache/c$concurrency/server-resources-attempt-$(printf '%03d' "$attempt").csv"
-  remote "mkdir -p '$(dirname "$remote_file")'; cd '$REMOTE_WORKSPACE'; pid=\$(cat '$REMOTE_BENCHMARK_DIR/tmp/jfed-server.pid'); nohup node '$REMOTE_BENCHMARK_DIR/scripts/metrics/monitor-process-tree.js' --pid \"\$pid\" --out '$remote_file' --interval '$SAMPLE_INTERVAL_MS' >/tmp/watdiv-server-monitor.log 2>&1 & echo \$! > '$REMOTE_BENCHMARK_DIR/tmp/jfed-server-monitor.pid'"
+  local active_arg=""
+  if [[ "$framework" == "ldf-dump-hdt" ]]; then
+    active_arg="--active-file '$REMOTE_BENCHMARK_DIR/tmp/hdt-dump-active-transfers'"
+  fi
+  remote "mkdir -p '$(dirname "$remote_file")'; cd '$REMOTE_WORKSPACE'; pid=\$(cat '$REMOTE_BENCHMARK_DIR/tmp/jfed-server.pid'); nohup node '$REMOTE_BENCHMARK_DIR/scripts/metrics/monitor-process-tree.js' --pid \"\$pid\" --out '$remote_file' --interval '$SAMPLE_INTERVAL_MS' $active_arg >/tmp/watdiv-server-monitor.log 2>&1 & echo \$! > '$REMOTE_BENCHMARK_DIR/tmp/jfed-server-monitor.pid'"
   echo "$remote_file"
 }
 
@@ -318,6 +323,11 @@ pull_server_metrics() {
   local local_file="$LOCAL_SERVER_METRICS_ROOT/$size/$framework/$cache/c$concurrency/$(basename "$remote_file")"
   mkdir -p "$(dirname "$local_file")"
   rsync -az "$SERVER_SSH:$remote_file" "$local_file"
+  if [[ "$framework" == *-cache ]]; then
+    local cache_log_name="nginx-$size-$framework-$RUN_ID-$cache-c$concurrency-access.log"
+    rsync -az "$SERVER_SSH:$REMOTE_BENCHMARK_DIR/logs/jfed/$cache_log_name" \
+      "$(dirname "$local_file")/$cache_log_name"
+  fi
   echo "$local_file"
 }
 
@@ -669,7 +679,7 @@ run_combination() {
   local concurrency="$4"
   ensure_client_run_root "$framework" "$size" "$cache" "$concurrency"
   if [[ "$RESTART_SERVER_PER_RUN" == "1" ]]; then
-    start_server "$framework" "$size"
+    start_server "$framework" "$size" "$RUN_ID-$cache-c$concurrency"
   fi
 
   prepare_client_distribution "$concurrency"
@@ -721,7 +731,7 @@ run_combination() {
     record_failure measured "$size" "$framework" "$cache" "$concurrency" "$status" server-outage-restarted
     echo "WARNING: $framework server exited during $size $cache c$concurrency; archived $archived_log." >&2
     echo "==> Restarting server and resuming after recorded query indices"
-    start_server "$framework" "$size"
+    start_server "$framework" "$size" "$RUN_ID-$cache-c$concurrency"
     server_attempt="$((server_attempt + 1))"
   done
 
