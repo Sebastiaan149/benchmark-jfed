@@ -351,7 +351,7 @@ async function runClient({
 }) {
   const globalClientId = clientId + clientIdOffset;
   const clientDir = path.join(iterationDir, 'clients', `client-${globalClientId}`);
-  if (cacheMode === 'cold' && !resume) {
+  if (cacheMode !== 'warm' && !resume) {
     removeDir(clientDir);
   }
   ensureDir(clientDir);
@@ -678,7 +678,7 @@ async function main() {
     const iterationDir = path.join(runRoot, `iteration-${String(iteration).padStart(3, '0')}`);
     const queryTimesFile = path.join(iterationDir, 'query-times.csv');
     const existingRows = resume ? readCsv(queryTimesFile) : [];
-    if (cacheMode === 'cold' && !resume) {
+    if (cacheMode !== 'warm' && !resume) {
       removeDir(iterationDir);
     }
     ensureDir(iterationDir);

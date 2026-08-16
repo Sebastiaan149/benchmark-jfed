@@ -40,6 +40,9 @@ QUERY_LIMIT="${QUERY_LIMIT:-0}"
 QUERY_SELECTION="${QUERY_SELECTION:-five}"
 QUERY_ORDER="${QUERY_ORDER:-fixed}"
 CACHE_MODES="${CACHE_MODES:-auto}"
+# When enabled, compare server caching only: uncached frameworks run once with
+# cold clients, while nginx partners run cold followed by server-warm.
+SERVER_CACHE_EXPERIMENT="${SERVER_CACHE_EXPERIMENT:-0}"
 CONCURRENCY_MAJOR_ORDER="${CONCURRENCY_MAJOR_ORDER:-0}"
 
 # Logical-client controls. These allow one physical client node to run many
@@ -231,12 +234,22 @@ framework_source_url() {
 # systems may have cold and warm runs, while simple endpoints usually only use
 # cold runs.
 cache_modes_for_framework() {
-  if [[ "$CACHE_MODES" != "auto" ]]; then
+  if [[ "$SERVER_CACHE_EXPERIMENT" == "1" && "$1" != *-cache ]]; then
+    echo "cold"
+  elif [[ "$CACHE_MODES" != "auto" ]]; then
     echo "$CACHE_MODES"
   else
     node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); console.log((c.frameworks[process.argv[2]].cacheModes || ['cold']).join(' '))" \
       "$CONFIG_FILE" "$1"
   fi
+}
+
+# Return success when this framework is configured to run a cold nginx
+# measurement immediately followed by a server-warm measurement.
+uses_server_warm_pair() {
+  local framework="$1"
+  [[ "$framework" == *-cache ]] || return 1
+  cache_modes_for_framework "$framework" | tr ' ' '\n' | grep -qx 'server-warm'
 }
 
 # Wait until the selected server endpoint is reachable before starting clients.
@@ -280,9 +293,10 @@ start_server() {
   local framework="$1"
   local size="$2"
   local server_run_label="${3:-$RUN_ID}"
+  local preserve_nginx_cache="${4:-0}"
   stop_server
   echo "==> Starting server framework=$framework size=$size"
-  remote "cd '$REMOTE_WORKSPACE' && $(remote_export_prefix) FRAMEWORK='$framework' SIZE='$size' SERVER_RUN_LABEL='$server_run_label' ./benchmark-jfed/scripts/server/start-controlled.sh"
+  remote "cd '$REMOTE_WORKSPACE' && $(remote_export_prefix) FRAMEWORK='$framework' SIZE='$size' SERVER_RUN_LABEL='$server_run_label' PRESERVE_NGINX_CACHE='$preserve_nginx_cache' ./benchmark-jfed/scripts/server/start-controlled.sh"
   wait_for_server "$framework" "$size"
 }
 
@@ -324,9 +338,16 @@ pull_server_metrics() {
   mkdir -p "$(dirname "$local_file")"
   rsync -az "$SERVER_SSH:$remote_file" "$local_file"
   if [[ "$framework" == *-cache ]]; then
-    local cache_log_name="nginx-$size-$framework-$RUN_ID-$cache-c$concurrency-access.log"
-    rsync -az "$SERVER_SSH:$REMOTE_BENCHMARK_DIR/logs/jfed/$cache_log_name" \
-      "$(dirname "$local_file")/$cache_log_name"
+    local active_cache_label="$cache"
+    if [[ "$cache" == "server-warm" ]]; then
+      # The paired measurements intentionally keep the same nginx process.
+      # Its configured log filename therefore retains the cold run label.
+      active_cache_label="cold"
+    fi
+    local remote_cache_log_name="nginx-$size-$framework-$RUN_ID-$active_cache_label-c$concurrency-access.log"
+    local local_cache_log_name="nginx-$size-$framework-$RUN_ID-$cache-c$concurrency-access.log"
+    rsync -az "$SERVER_SSH:$REMOTE_BENCHMARK_DIR/logs/jfed/$remote_cache_log_name" \
+      "$(dirname "$local_file")/$local_cache_log_name"
   fi
   echo "$local_file"
 }
@@ -677,9 +698,25 @@ run_combination() {
   local framework="$2"
   local cache="$3"
   local concurrency="$4"
+  local preserve_nginx_cache=0
+  local is_server_warm_pair=0
+  if uses_server_warm_pair "$framework"; then
+    is_server_warm_pair=1
+  fi
+  if [[ "$framework" == *-cache && "$cache" == "server-warm" ]]; then
+    preserve_nginx_cache=1
+  fi
   ensure_client_run_root "$framework" "$size" "$cache" "$concurrency"
   if [[ "$RESTART_SERVER_PER_RUN" == "1" ]]; then
-    start_server "$framework" "$size" "$RUN_ID-$cache-c$concurrency"
+    if [[ "$cache" == "server-warm" && "$is_server_warm_pair" == "1" ]]; then
+      if ! server_process_is_alive; then
+        echo "The server-warm measurement requires the preceding cold nginx server to remain active." >&2
+        exit 1
+      fi
+      echo "==> Reusing nginx and its populated cache for framework=$framework size=$size c$concurrency"
+    else
+      start_server "$framework" "$size" "$RUN_ID-$cache-c$concurrency" "$preserve_nginx_cache"
+    fi
   fi
 
   prepare_client_distribution "$concurrency"
@@ -731,7 +768,7 @@ run_combination() {
     record_failure measured "$size" "$framework" "$cache" "$concurrency" "$status" server-outage-restarted
     echo "WARNING: $framework server exited during $size $cache c$concurrency; archived $archived_log." >&2
     echo "==> Restarting server and resuming after recorded query indices"
-    start_server "$framework" "$size" "$RUN_ID-$cache-c$concurrency"
+    start_server "$framework" "$size" "$RUN_ID-$cache-c$concurrency" "$preserve_nginx_cache"
     server_attempt="$((server_attempt + 1))"
   done
 
@@ -753,8 +790,19 @@ run_combination() {
   elif (( server_incidents > 0 || query_failures > 0 )); then
     classify_query_failures "$size" "$framework" "$cache" "$concurrency" >/dev/null 2>&1 || true
   fi
-  if [[ "$RESTART_SERVER_PER_RUN" == "1" ]]; then stop_server; fi
-  if [[ "$CLEAR_CACHES_BETWEEN_CONCURRENCY" == "1" ]]; then
+  if [[ "$framework" == *-cache && "$cache" == "cold" && "$is_server_warm_pair" == "1" ]]; then
+    # The cold access log has already been copied locally. Start the warm
+    # measurement with an empty log while leaving nginx, its origin, and all
+    # cached response files untouched.
+    remote ": > '$REMOTE_BENCHMARK_DIR/logs/jfed/nginx-$size-$framework-$RUN_ID-cold-c$concurrency-access.log'"
+  elif [[ "$RESTART_SERVER_PER_RUN" == "1" ]]; then
+    stop_server
+  fi
+  # A cached framework's cold measurement is deliberately the population pass
+  # for its immediately following server-warm measurement. Keep that nginx
+  # cache (including the OS page cache) until both measurements are complete.
+  if [[ "$CLEAR_CACHES_BETWEEN_CONCURRENCY" == "1" &&
+    !( "$framework" == *-cache && "$cache" == "cold" && "$is_server_warm_pair" == "1" ) ]]; then
     clear_runtime_caches_between_concurrency_levels "$size" "$framework" "$cache" "$concurrency"
   fi
 }
@@ -793,6 +841,7 @@ fi
 # Rebuild the global aggregate CSV once the full matrix has completed.
 RESULTS_ROOT="$RESULTS_ROOT" node "$BENCHMARK_DIR/scripts/analysis/aggregate-results.js"
 RESULTS_ROOT="$RESULTS_ROOT" node "$BENCHMARK_DIR/scripts/analysis/aggregate-network.js"
+node "$BENCHMARK_DIR/scripts/analysis/aggregate-stage-timeseries.js" "$RESULTS_ROOT"
 echo "Full benchmark complete. Results: $RESULTS_ROOT"
 if (( failure_count > 0 )); then
   echo "Completed with $failure_count recoverable benchmark combinations. Failure logs: $FAILURE_LOG and $QUERY_FAILURE_LOG" >&2

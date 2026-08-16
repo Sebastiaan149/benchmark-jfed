@@ -149,15 +149,11 @@ Each limited logical client receives the same cgroup limits: 0.25 CPU core and
 node allocation this reserves at most 5.5 of 6 cores and 44 of 56 GiB, leaving
 capacity for the operating system and benchmark controller.
 
-The concurrency profile additionally runs a cold-on-start nginx reverse-cache
-partner for every network framework except `ldf-dump-hdt`. It uses the request
-method, URI, request body, `Accept`, and content type as its cache key, locks
-simultaneous cache misses, and
-records nginx `HIT`, `MISS`, and related statuses in run-labelled access logs.
-GET, HEAD, and POST responses are cacheable; other methods are proxied without
-caching. The single-client performance profile continues to use only uncached
-variants. Analysis writes per-framework request counts, HIT/MISS totals, and hit
-ratios to `nginx-cache-stats.csv`.
+The concurrency profile additionally runs an nginx reverse-cache partner for every network framework except `ldf-dump-hdt`. Each cached partner is measured twice at every concurrency level: first with a cold-on-start nginx cache, and then as `server-warm` by reusing the cache populated by that cold measurement. No separate warm-up workload is needed. Client caches are cold and isolated in the uncached baseline and both nginx measurements, so each network framework has exactly three server-cache conditions and `server-warm` refers only to the shared nginx cache.
+
+The cache key includes the request method, URI, request body, `Accept`, and content type. Nginx locks simultaneous cache misses and records `HIT`, `MISS`, and related statuses in run-labelled access logs. GET, HEAD, and POST responses are cacheable; other methods are proxied without caching. The same nginx and origin-server processes remain active between the cold and warm measurements, retaining both the response cache and the server filesystem page cache for `server-warm`. Client runtime directories and the nginx access log are separated between measurements, and the server caches are cleared after the pair before the next concurrency level. The single-client performance profile continues to use only uncached variants.
+
+Analysis writes per-framework request counts, HIT/MISS totals, and hit ratios to `nginx-cache-stats.csv`. The one-second raw samples are also converted into `server-resource-timeseries.csv` and `network-timeseries.csv` for plotting the transition from no nginx, through cold cache population, to the reused warm cache. Both files identify the framework family, cache condition, concurrency, stage number, elapsed time within the stage, and a continuous timeline position across all three stages. The server timeline contains CPU percentage, RSS memory, process count, and PID, while the network timeline contains per-second RX/TX bytes, packets, Mbit/s, and cumulative totals within each stage and across the complete three-stage experiment.
 
 For `ldf-dump-hdt`, each logical client downloads the HDT file and index once
 per iteration and reuses that private copy for every query in the iteration.

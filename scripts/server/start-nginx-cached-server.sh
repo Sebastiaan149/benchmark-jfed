@@ -24,6 +24,11 @@ CACHE_DIR="$PREFIX/cache"
 TEMP_DIR="$PREFIX/temp"
 CONFIG="$PREFIX/nginx.conf"
 SERVER_RUN_LABEL="${SERVER_RUN_LABEL:-manual}"
+PRESERVE_NGINX_CACHE="${PRESERVE_NGINX_CACHE:-0}"
+if [[ "$PRESERVE_NGINX_CACHE" != "0" && "$PRESERVE_NGINX_CACHE" != "1" ]]; then
+  echo "PRESERVE_NGINX_CACHE must be 0 or 1." >&2
+  exit 1
+fi
 if [[ ! "$SERVER_RUN_LABEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
   echo "Unsafe server run label." >&2
   exit 1
@@ -32,7 +37,9 @@ ACCESS_LOG="$LOG_ROOT/jfed/nginx-$SIZE-$CACHED_FRAMEWORK-$SERVER_RUN_LABEL-acces
 ERROR_LOG="$LOG_ROOT/jfed/nginx-$SIZE-$CACHED_FRAMEWORK-$SERVER_RUN_LABEL-error.log"
 
 require_command nginx
-rm -rf "$PREFIX"
+if [[ "$PRESERVE_NGINX_CACHE" != "1" ]]; then
+  rm -rf "$PREFIX"
+fi
 mkdir -p "$CACHE_DIR" "$TEMP_DIR" "$(dirname "$ACCESS_LOG")"
 touch "$ACCESS_LOG" "$ERROR_LOG"
 node "$SCRIPT_DIR/write-nginx-cache-config.js" \

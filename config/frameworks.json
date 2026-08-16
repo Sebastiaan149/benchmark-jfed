@@ -83,7 +83,7 @@
     "smartkg-cache": {
       "port": 18180, "server": "nginx-fragment-cache", "cacheOriginFramework": "smartkg",
       "engine": "query-sparql-smartkg", "source": "http://localhost:{port}/smartkg",
-      "cacheModes": ["cold"], "requires": ["dataset.hdt", "partitioning/metadata.json", "partitioning/hdt"]
+      "cacheModes": ["cold", "server-warm"], "requires": ["dataset.hdt", "partitioning/metadata.json", "partitioning/hdt"]
     },
     "smartkg-plus": {
       "port": 18081,
@@ -96,7 +96,7 @@
     "smartkg-plus-cache": {
       "port": 18181, "server": "nginx-fragment-cache", "cacheOriginFramework": "smartkg-plus",
       "engine": "query-sparql-smartkg", "source": "smartkg+@http://localhost:{port}/smartkg+",
-      "cacheModes": ["cold"], "requires": ["dataset.hdt", "dataset.hdt.cs", "typed-partitioning/metadata.json", "typed-partitioning/hdt"]
+      "cacheModes": ["cold", "server-warm"], "requires": ["dataset.hdt", "dataset.hdt.cs", "typed-partitioning/metadata.json", "typed-partitioning/hdt"]
     },
     "wisekg": {
       "port": 18082,
@@ -110,7 +110,7 @@
     "wisekg-cache": {
       "port": 18182, "server": "nginx-fragment-cache", "cacheOriginFramework": "wisekg",
       "engine": "query-sparql-wisekg", "source": "wisekg@http://localhost:{port}/wisekg",
-      "cacheModes": ["cold"], "queryTimeoutSeconds": 1800,
+      "cacheModes": ["cold", "server-warm"], "queryTimeoutSeconds": 1800,
       "requires": ["dataset.hdt", "dataset.hdt.cs", "partitioning/metadata.json", "partitioning/hdt"]
     },
     "passage": {
@@ -125,7 +125,7 @@
     "passage-cache": {
       "port": 18183, "server": "nginx-fragment-cache", "cacheOriginFramework": "passage",
       "engine": "query-passage", "source": "passage@http://localhost:{port}/data/passage",
-      "healthPath": "/$/ping", "cacheModes": ["cold"],
+      "healthPath": "/$/ping", "cacheModes": ["cold", "server-warm"],
       "requires": ["passage/local-data.properties", "passage/dataset.jnl"]
     },
     "spf": {
@@ -140,7 +140,7 @@
     "spf-cache": {
       "port": 18184, "server": "nginx-fragment-cache", "cacheOriginFramework": "spf",
       "engine": "query-sparql-spf", "source": "spf@http://localhost:{port}/spf",
-      "cacheModes": ["cold"], "queryTimeoutSeconds": 1800, "requires": ["dataset.hdt"]
+      "cacheModes": ["cold", "server-warm"], "queryTimeoutSeconds": 1800, "requires": ["dataset.hdt"]
     },
     "ldf-endpoint": {
       "port": 18085,
@@ -154,7 +154,7 @@
     "ldf-endpoint-cache": {
       "port": 18185, "server": "nginx-fragment-cache", "cacheOriginFramework": "ldf-endpoint",
       "engine": "query-sparql", "source": "http://localhost:{port}/sparql",
-      "cacheModes": ["cold"], "requires": ["dataset.nt"]
+      "cacheModes": ["cold", "server-warm"], "requires": ["dataset.nt"]
     },
     "ldf-tpf": {
       "port": 18086,
@@ -170,7 +170,7 @@
       "cacheOriginFramework": "ldf-tpf",
       "engine": "query-sparql",
       "source": "http://localhost:{port}/watdiv",
-      "cacheModes": ["cold"],
+      "cacheModes": ["cold", "server-warm"],
       "requires": ["dataset.hdt"]
     },
     "ldf-qpf": {
@@ -184,7 +184,7 @@
     "ldf-qpf-cache": {
       "port": 18187, "server": "nginx-fragment-cache", "cacheOriginFramework": "ldf-qpf",
       "engine": "query-sparql", "source": "http://localhost:{port}/watdiv",
-      "cacheModes": ["cold"], "requires": ["dataset.hdt"]
+      "cacheModes": ["cold", "server-warm"], "requires": ["dataset.hdt"]
     },
     "ldf-dump-hdt": {
       "port": 18089,
@@ -207,7 +207,7 @@
     "ldf-brtpf-cache": {
       "port": 18190, "server": "nginx-fragment-cache", "cacheOriginFramework": "ldf-brtpf",
       "engine": "query-sparql", "source": "brtpf@http://localhost:{port}/spf",
-      "cacheModes": ["cold"], "requires": ["dataset.hdt"]
+      "cacheModes": ["cold", "server-warm"], "requires": ["dataset.hdt"]
     }
   }
 }

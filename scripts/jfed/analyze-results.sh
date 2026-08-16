@@ -12,5 +12,15 @@ case "$PROFILE" in
     ;;
 esac
 
-node "$SCRIPT_DIR/../analysis/aggregate-nginx-cache.js" "$SCRIPT_DIR/../../watdiv-results/$PROFILE"
+RESULTS_ROOT="$SCRIPT_DIR/../../watdiv-results/$PROFILE"
+node "$SCRIPT_DIR/../analysis/aggregate-nginx-cache.js" "$RESULTS_ROOT"
+if [[ "$PROFILE" == "full" ]]; then
+  for result_set in single-unlimited concurrent-limited; do
+    if [[ -d "$RESULTS_ROOT/$result_set" ]]; then
+      node "$SCRIPT_DIR/../analysis/aggregate-stage-timeseries.js" "$RESULTS_ROOT/$result_set"
+    fi
+  done
+else
+  node "$SCRIPT_DIR/../analysis/aggregate-stage-timeseries.js" "$RESULTS_ROOT"
+fi
 python3 "$SCRIPT_DIR/../analysis/plot-results.py" "$PROFILE"

@@ -104,6 +104,7 @@ else
   QUERY_ORDER="random" \
   CONCURRENCY_MAJOR_ORDER="1" \
   CLEAR_CACHES_BETWEEN_CONCURRENCY="1" \
+  SERVER_CACHE_EXPERIMENT="1" \
   FRAMEWORKS="smartkg smartkg-cache smartkg-plus smartkg-plus-cache wisekg wisekg-cache passage passage-cache spf spf-cache ldf-endpoint ldf-endpoint-cache ldf-tpf ldf-tpf-cache ldf-qpf ldf-qpf-cache ldf-brtpf ldf-brtpf-cache ldf-dump-hdt" \
     "$SCRIPT_DIR/run-full.sh"
 fi

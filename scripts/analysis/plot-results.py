@@ -43,24 +43,42 @@ def analyze_result_set(results_root: Path, benchmark_dir: Path, benchmark_name: 
     plot_dir.mkdir(exist_ok=True)
 
     for size in ("1m", "10m", "50m", "100m"):
-        subset = averages[(averages["size"] == size) & (averages["cacheMode"] == "cold")]
+        if benchmark_name == "concurrent-limited":
+            subset = averages[
+                (averages["size"] == size) & averages["cacheMode"].isin(("cold", "server-warm"))
+            ]
+            plot_suffix = "server-cache"
+            plot_title = "server-cache comparison (cold clients)"
+        else:
+            subset = averages[(averages["size"] == size) & (averages["cacheMode"] == "cold")]
+            plot_suffix = "cold"
+            plot_title = "cold cache"
         if subset.empty:
             continue
         figure, axis = plt.subplots(figsize=(11, 6))
-        for framework, values in subset.groupby("framework"):
+        for (framework, cache_mode), values in subset.groupby(["framework", "cacheMode"]):
             values = values.sort_values("concurrency")
-            axis.plot(values["concurrency"], values["avgQueryTimeMs"], marker="o", label=framework)
+            if framework.endswith("-cache"):
+                condition = "warm nginx" if cache_mode == "server-warm" else "cold nginx"
+            else:
+                condition = "no nginx"
+            axis.plot(
+                values["concurrency"],
+                values["avgQueryTimeMs"],
+                marker="o",
+                label=f"{framework} ({condition})",
+            )
         axis.set(
             xlabel="Concurrent clients",
             ylabel="Average complete result time (ms)",
-            title=f"WatDiv {size}, cold cache",
+            title=f"WatDiv {size}, {plot_title}",
         )
         if subset["concurrency"].max() > 1:
             axis.set_xscale("log", base=2)
         axis.grid(True, alpha=0.3)
         axis.legend(fontsize=8, ncol=2)
         figure.tight_layout()
-        figure.savefig(plot_dir / f"query-time-{size}-cold.png", dpi=160)
+        figure.savefig(plot_dir / f"query-time-{size}-{plot_suffix}.png", dpi=160)
         plt.close(figure)
 
     summary_columns = [
@@ -82,7 +100,22 @@ def analyze_result_set(results_root: Path, benchmark_dir: Path, benchmark_name: 
         "serverDowntimeCount",
         "serverRecoveryWarning",
     ]
-    report = averages[summary_columns].merge(dataset_statistics, on="size", how="left").sort_values(
+    report = averages[summary_columns].copy()
+    report.insert(
+        3,
+        "serverCacheCondition",
+        report.apply(
+            lambda row: (
+                "nginx-warm"
+                if row["framework"].endswith("-cache") and row["cacheMode"] == "server-warm"
+                else "nginx-cold"
+                if row["framework"].endswith("-cache")
+                else "no-nginx"
+            ),
+            axis=1,
+        ),
+    )
+    report = report.merge(dataset_statistics, on="size", how="left").sort_values(
         ["size", "framework", "cacheMode", "concurrency"],
     )
     report.to_csv(results_root / "report-summary.csv", index=False)
