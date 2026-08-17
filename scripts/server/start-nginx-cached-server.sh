@@ -57,10 +57,24 @@ trap cleanup EXIT INT TERM
 
 PORT="$ORIGIN_PORT" ADVERTISED_PORT="$PUBLIC_PORT" "$SCRIPT_DIR/start-server.sh" "$ORIGIN_FRAMEWORK" "$SIZE" &
 origin_pid="$!"
+ORIGIN_HEALTH_URL="$(node - "$CONFIG_FILE" "$ORIGIN_FRAMEWORK" "$ORIGIN_PORT" <<'NODE'
+const fs = require('fs');
+const [ configFile, frameworkName, port ] = process.argv.slice(2);
+const framework = JSON.parse(fs.readFileSync(configFile, 'utf8')).frameworks[frameworkName];
+if (framework.healthPath) {
+  console.log(`http://127.0.0.1:${port}${framework.healthPath}`);
+} else {
+  const source = framework.source
+    .replaceAll('localhost', '127.0.0.1')
+    .replaceAll('{port}', port);
+  console.log(source.includes('@') ? source.split('@').pop() : source);
+}
+NODE
+)"
 origin_ready=0
 for _attempt in $(seq 1 60); do
-  if curl -fsS -I "http://127.0.0.1:$ORIGIN_PORT/" >/dev/null 2>&1 ||
-    curl -fsS "http://127.0.0.1:$ORIGIN_PORT/" >/dev/null 2>&1; then
+  if curl --max-time 2 -fsS -I "$ORIGIN_HEALTH_URL" >/dev/null 2>&1 ||
+    curl --max-time 2 -fsS "$ORIGIN_HEALTH_URL" >/dev/null 2>&1; then
     origin_ready=1
     break
   fi
@@ -71,7 +85,7 @@ for _attempt in $(seq 1 60); do
   sleep 1
 done
 if [[ "$origin_ready" != "1" ]]; then
-  echo "Cache origin $ORIGIN_FRAMEWORK did not become ready on port $ORIGIN_PORT." >&2
+  echo "Cache origin $ORIGIN_FRAMEWORK did not become ready at $ORIGIN_HEALTH_URL." >&2
   exit 1
 fi
 
