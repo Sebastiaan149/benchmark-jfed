@@ -92,7 +92,7 @@ function aggregateServerResources() {
     }
     const samples = parseCsv(file).map(row => ({
       timestamp: row.timestamp,
-      timestampMs: Date.parse(row.timestamp),
+      timestampMs: Date.parse(row.timestamp.replace(',', '.')),
       pid: Number(row.pid),
       processCount: Number(row.processCount),
       cpuPercent: Number(row.cpuPercent),
@@ -153,7 +153,7 @@ function aggregateNetwork() {
     for (const row of parseCsv(file)) {
       const sample = {
         timestamp: row.timestamp,
-        timestampMs: Date.parse(row.timestamp),
+        timestampMs: Date.parse(row.timestamp.replace(',', '.')),
         rxBytes: Number(row.rxBytes),
         txBytes: Number(row.txBytes),
         rxPackets: Number(row.rxPackets),

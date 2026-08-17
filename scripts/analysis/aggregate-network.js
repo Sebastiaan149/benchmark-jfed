@@ -9,6 +9,12 @@ const resultsRoot = process.env.RESULTS_ROOT || path.join(benchRoot, 'watdiv-res
 const outputFile = path.join(resultsRoot, 'network-averages.csv');
 const clientOutputFile = path.join(resultsRoot, 'network-clients.csv');
 
+// Accept both GNU date's comma fractional separator used by older samples and
+// the standard dot separator emitted by the current network monitor.
+function parseTimestamp(value) {
+  return Date.parse(String(value).replace(',', '.'));
+}
+
 function walk(dir) {
   if (!fs.existsSync(dir)) {
     return [];
@@ -34,7 +40,7 @@ function summarize(file) {
   }
   const rows = fs.readFileSync(file, 'utf8').trim().split(/\r?\n/u).slice(1).filter(Boolean).map((line) => {
     const [ timestamp, client, rxBytes, txBytes, rxPackets, txPackets ] = line.split(';');
-    return { timestamp: Date.parse(timestamp), client, rxBytes: Number(rxBytes), txBytes: Number(txBytes),
+    return { timestamp: parseTimestamp(timestamp), client, rxBytes: Number(rxBytes), txBytes: Number(txBytes),
       rxPackets: Number(rxPackets), txPackets: Number(txPackets) };
   });
   const byClient = new Map();

@@ -18,7 +18,10 @@ if [[ "$APPEND" != "1" || ! -s "$OUT" ]]; then
 fi
 
 sample_all() {
+  # GNU date separates fractional seconds with a comma, which JavaScript's
+  # Date.parse rejects. Emit the equivalent ISO 8601 representation with a dot.
   ts="$(date --iso-8601=ns)"
+  ts="${ts/,/.}"
   for i in $(seq 1 "$COUNT"); do
     client_id="$((CLIENT_ID_OFFSET + i))"
     ns="${PREFIX}${client_id}"
