@@ -161,13 +161,15 @@ ACTIVE_CLIENT_OFFSETS=()
 # Run a command on the server node. BatchMode makes SSH fail immediately if keys
 # are not configured, instead of prompting in the middle of a long benchmark.
 remote() {
-  ssh -o BatchMode=yes "$SERVER_SSH" "$@"
+  ssh -o BatchMode=yes -o ConnectTimeout=10 -o ConnectionAttempts=3 \
+    -o ServerAliveInterval=15 -o ServerAliveCountMax=3 "$SERVER_SSH" "$@"
 }
 
 remote_client() {
   local client="$1"
   shift
-  ssh -o BatchMode=yes "$client" "$@"
+  ssh -o BatchMode=yes -o ConnectTimeout=10 -o ConnectionAttempts=3 \
+    -o ServerAliveInterval=15 -o ServerAliveCountMax=3 "$client" "$@"
 }
 
 use_remote_clients() {
@@ -318,8 +320,42 @@ start_server_monitor() {
   if [[ "$framework" == "ldf-dump-hdt" ]]; then
     active_arg="--active-file '$REMOTE_BENCHMARK_DIR/tmp/hdt-dump-active-transfers'"
   fi
-  remote "mkdir -p '$(dirname "$remote_file")'; cd '$REMOTE_WORKSPACE'; pid=\$(cat '$REMOTE_BENCHMARK_DIR/tmp/jfed-server.pid'); nohup node '$REMOTE_BENCHMARK_DIR/scripts/metrics/monitor-process-tree.js' --pid \"\$pid\" --out '$remote_file' --interval '$SAMPLE_INTERVAL_MS' $active_arg >/tmp/watdiv-server-monitor.log 2>&1 & echo \$! > '$REMOTE_BENCHMARK_DIR/tmp/jfed-server-monitor.pid'"
-  echo "$remote_file"
+  local launch_attempt=0
+  local max_launch_attempts=5
+  while (( launch_attempt < max_launch_attempts )); do
+    launch_attempt="$((launch_attempt + 1))"
+    if remote "
+      monitor_pid=\$(cat '$REMOTE_BENCHMARK_DIR/tmp/jfed-server-monitor.pid' 2>/dev/null || true)
+      if [[ \"\$monitor_pid\" =~ ^[0-9]+\$ ]] && kill -0 \"\$monitor_pid\" 2>/dev/null && [[ -s '$remote_file' ]]; then
+        exit 0
+      fi
+      if [[ \"\$monitor_pid\" =~ ^[0-9]+\$ ]]; then kill \"\$monitor_pid\" >/dev/null 2>&1 || true; fi
+      rm -f '$REMOTE_BENCHMARK_DIR/tmp/jfed-server-monitor.pid' '$remote_file'
+      mkdir -p '$(dirname "$remote_file")' || exit 1
+      cd '$REMOTE_WORKSPACE' || exit 1
+      pid=\$(cat '$REMOTE_BENCHMARK_DIR/tmp/jfed-server.pid') || exit 1
+      nohup node '$REMOTE_BENCHMARK_DIR/scripts/metrics/monitor-process-tree.js' --pid \"\$pid\" --out '$remote_file' --interval '$SAMPLE_INTERVAL_MS' $active_arg >/tmp/watdiv-server-monitor.log 2>&1 &
+      monitor_pid=\$!
+      echo \"\$monitor_pid\" > '$REMOTE_BENCHMARK_DIR/tmp/jfed-server-monitor.pid' || exit 1
+      for _attempt in \$(seq 1 20); do
+        if [[ -s '$remote_file' ]] && kill -0 \"\$monitor_pid\" 2>/dev/null; then exit 0; fi
+        if ! kill -0 \"\$monitor_pid\" 2>/dev/null; then break; fi
+        sleep 0.25
+      done
+      echo 'Server resource monitor failed to create $remote_file.' >&2
+      tail -n 80 /tmp/watdiv-server-monitor.log >&2 2>/dev/null || true
+      exit 1
+    "; then
+      echo "$remote_file"
+      return 0
+    fi
+    if (( launch_attempt < max_launch_attempts )); then
+      echo "Server resource monitor launch attempt $launch_attempt/$max_launch_attempts failed for $framework $size $cache c$concurrency; retrying in 5 seconds." >&2
+      sleep 5
+    fi
+  done
+  echo "Server resource monitor failed after $max_launch_attempts attempts for $framework $size $cache c$concurrency; terminating the benchmark." >&2
+  return 1
 }
 
 # Stop the remote server monitor after a client run finishes.
