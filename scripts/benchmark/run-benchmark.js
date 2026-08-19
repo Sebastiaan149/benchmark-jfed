@@ -452,7 +452,6 @@ async function runClient({
       retainQueryOutputs,
       cwd: clientDir,
       endpointLog,
-      cgroupDir: cgroupRoot ? path.join(cgroupRoot, `client-${globalClientId}`) : '',
       executions,
     })}\n`);
 

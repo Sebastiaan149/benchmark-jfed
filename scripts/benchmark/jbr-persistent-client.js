@@ -206,17 +206,10 @@ async function main() {
   };
   process.once('SIGINT', () => stopOnSignal('SIGINT'));
   process.once('SIGTERM', () => stopOnSignal('SIGTERM'));
-  if (input.cgroupDir) {
-    for (let attempt = 0; attempt < 100 && !fs.existsSync(input.cgroupDir); attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
-    try {
-      fs.writeFileSync(path.join(input.cgroupDir, 'cgroup.procs'), `${endpoint.pid}\n`);
-    } catch (error) {
-      stopProcessTree(endpoint);
-      throw error;
-    }
-  }
+  // run-benchmark places this adapter in the logical client's cgroup before
+  // this point. Comunica and all worker descendants inherit that membership,
+  // so a second write to cgroup.procs is unnecessary (and can race with
+  // external cgroup lifecycle management).
   let endpointError;
   endpoint.once('error', error => endpointError = error);
 
