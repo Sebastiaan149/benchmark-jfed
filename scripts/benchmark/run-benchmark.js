@@ -360,8 +360,8 @@ async function runClient({
   ensureDir(path.join(clientDir, 'outputs'));
 
   const engineBin = frameworkConfig.clientMode === 'hdt-download' ?
-    path.join(benchRoot, 'scripts', 'benchmark', 'query-hdt-dump.js') :
-    path.join(root, 'comunicaMT', 'engines', frameworkConfig.engine, 'bin', 'query.js');
+    path.join(benchRoot, 'node_modules', '@comunica', 'query-sparql-hdt', 'bin', 'http.js') :
+    path.join(root, 'comunicaMT', 'engines', frameworkConfig.engine, 'bin', 'http.js');
   const orderedQueries = queryOrder === 'random' ?
     randomizeQueries(queries, `${queryOrderSeedValue}:${globalClientId}:${iteration}`) : queries;
   const querySlice = queryLimit > 0 ? orderedQueries.slice(0, queryLimit) : orderedQueries;
@@ -376,10 +376,11 @@ async function runClient({
   // CPU/RAM does not belong to any query. Prepare one private copy now and let
   // every query in this client/iteration reuse it.
   if (frameworkConfig.clientMode === 'hdt-download') {
+    const preparationBin = path.join(benchRoot, 'scripts', 'benchmark', 'query-hdt-dump.js');
     const command = netnsPrefix ? 'ip' : 'node';
     const commandArgs = netnsPrefix ?
-      [ 'netns', 'exec', `${netnsPrefix}${globalClientId}`, 'node', engineBin, '--prepare', source ] :
-      [ engineBin, '--prepare', source ];
+      [ 'netns', 'exec', `${netnsPrefix}${globalClientId}`, 'node', preparationBin, '--prepare', source ] :
+      [ preparationBin, '--prepare', source ];
     const preparation = await runCommand(command, commandArgs, { cwd: clientDir, env }, timeoutMs,
       sampleIntervalMs, createResourceController({
         cgroupRoot,
@@ -392,8 +393,8 @@ async function runClient({
     }
   }
 
-  async function runPass(phase) {
-    const rows = [];
+  function executionsForPass(phase) {
+    const executions = [];
     const completedQueryIndices = new Set(existingRows
       .filter(row => row.phase === phase && Number(row.client) === globalClientId)
       .map(row => Number(row.queryIndex)));
@@ -410,68 +411,112 @@ async function runClient({
       if (failedQueries.has(`${queryName};${queryEntry.instance}`)) {
         continue;
       }
-      const command = netnsPrefix ? 'ip' : 'node';
-      const commandArgs = netnsPrefix ?
-        [ 'netns', 'exec', `${netnsPrefix}${globalClientId}`, 'node', engineBin, source, queryEntry.query ] :
-        [ engineBin, source, queryEntry.query ];
-      const result = await runCommand(command, commandArgs, {
-        cwd: clientDir,
-        env,
-      }, timeoutMs, sampleIntervalMs, createResourceController({
+      executions.push({
+        phase,
+        client: globalClientId,
+        queryIndex,
+        queryName,
+        queryInstance: queryEntry.instance,
+        query: queryEntry.query,
+      });
+    }
+    return executions;
+  }
+
+  try {
+    const executions = [];
+    if (workloadPhase === 'warmup' || (cacheMode === 'warm' && workloadPhase === 'both')) {
+      executions.push(...executionsForPass('warmup'));
+    }
+    if (workloadPhase !== 'warmup') {
+      executions.push(...executionsForPass('measured'));
+    }
+    if (executions.length === 0) {
+      return [];
+    }
+
+    const persistentSource = frameworkConfig.clientMode === 'hdt-download' ?
+      `hdt@${path.join(clientDir, 'tmp', 'hdt-dump', 'dataset.hdt')}` : source;
+    const adapter = path.join(benchRoot, 'scripts', 'benchmark', 'jbr-persistent-client.js');
+    const inputFile = path.join(clientDir, 'jbr-iteration-input.json');
+    const outputFile = path.join(clientDir, 'jbr-iteration-results.json');
+    const endpointLog = path.join(clientDir, 'outputs', 'jbr-comunica-endpoint.log');
+    const localPort = 32_000 + globalClientId;
+    fs.writeFileSync(inputFile, `${JSON.stringify({
+      engineBin,
+      source: persistentSource,
+      port: localPort,
+      timeoutMs,
+      sampleIntervalMs,
+      measureNetwork: Boolean(netnsPrefix),
+      retainQueryOutputs,
+      cwd: clientDir,
+      endpointLog,
+      cgroupDir: cgroupRoot ? path.join(cgroupRoot, `client-${globalClientId}`) : '',
+      executions,
+    })}\n`);
+
+    const command = netnsPrefix ? 'ip' : 'node';
+    const commandArgs = netnsPrefix ?
+      [ 'netns', 'exec', `${netnsPrefix}${globalClientId}`, 'node', adapter, inputFile, outputFile ] :
+      [ adapter, inputFile, outputFile ];
+    const iterationTimeoutMs = Math.min(2_147_000_000, timeoutMs * executions.length + 180_000);
+    const processResult = await runCommand(command, commandArgs, { cwd: clientDir, env }, iterationTimeoutMs,
+      sampleIntervalMs, createResourceController({
         cgroupRoot,
         groupName: `client-${globalClientId}`,
         cpuMax: clientCpuMax,
         memoryMax: clientMemoryMax,
-      }), retainQueryOutputs);
-      const safeName = `${queryName}-instance-${queryEntry.instance}`.replace(/[^a-zA-Z0-9_.-]+/gu, '_');
-      const outFile = path.join(clientDir, 'outputs', `${phase}-${queryIndex}-${safeName}.out`);
-      const errFile = path.join(clientDir, 'outputs', `${phase}-${queryIndex}-${safeName}.err`);
+      }), false, false);
+    if (processResult.status !== 0 || !fs.existsSync(outputFile)) {
+      throw new Error(`Persistent JBR client ${globalClientId} failed: ${processResult.stderr.trim()}`);
+    }
+
+    const results = JSON.parse(fs.readFileSync(outputFile, 'utf8'))
+      // A combined warmup+measurement keeps one engine alive for both passes,
+      // but the historical query-times.csv contract registers measured rows.
+      .filter(result => workloadPhase !== 'both' || result.phase === 'measured');
+    return results.map((result) => {
+      const safeName = `${result.queryName}-instance-${result.queryInstance}`
+        .replace(/[^a-zA-Z0-9_.-]+/gu, '_');
+      const outFile = path.join(clientDir, 'outputs', `${result.phase}-${result.queryIndex}-${safeName}.out`);
+      const errFile = path.join(clientDir, 'outputs', `${result.phase}-${result.queryIndex}-${safeName}.err`);
       if (retainQueryOutputs) {
-        fs.writeFileSync(outFile, result.stdout);
+        fs.writeFileSync(outFile, result.bindingsOutput || '');
       }
-      if (result.stderr || result.status !== 0 || result.timedOut) {
-        fs.writeFileSync(errFile, result.stderr);
+      if (result.error) {
+        fs.writeFileSync(errFile, `${result.error}\n`);
       }
-      const results = result.resultCount;
-      const throughput = result.timeMs > 0 ? results / (result.timeMs / 1_000) : 0;
-      const row = {
-        phase,
+      return {
+        phase: result.phase,
         client: globalClientId,
-        queryIndex,
-        query: queryName,
-        queryInstance: queryEntry.instance,
+        queryIndex: result.queryIndex,
+        query: result.queryName,
+        queryInstance: result.queryInstance,
         status: result.status,
         signal: result.signal || '',
         timedOut: result.timedOut,
-        results,
+        results: result.results,
         timeMs: result.timeMs,
-        firstResultTimeMs: result.firstResultTimeMs ?? '',
-        fullResultTimeMs: result.timeMs,
-        resultThroughputPerSec: throughput,
+        firstResultTimeMs: result.firstResultTimeMs,
+        fullResultTimeMs: result.fullResultTimeMs,
+        resultThroughputPerSec: result.timeMs > 0 ? result.results / (result.timeMs / 1_000) : 0,
         clientResourceSampleCount: result.resourceSummary.sampleCount,
         clientAvgCpuPercent: result.resourceSummary.avgCpuPercent,
         clientMaxCpuPercent: result.resourceSummary.maxCpuPercent,
         clientAvgRssMb: result.resourceSummary.avgRssMb,
         clientMaxRssMb: result.resourceSummary.maxRssMb,
+        clientCpuTimeMs: result.clientCpuTimeMs,
+        clientRxBytes: result.rxBytes ?? '',
+        clientTxBytes: result.txBytes ?? '',
+        clientRxPackets: result.rxPackets ?? '',
+        clientTxPackets: result.txPackets ?? '',
+        resultHash: result.resultHash,
+        executionMode: 'jbr-persistent-comunica-http',
         stdoutFile: retainQueryOutputs ? path.relative(iterationDir, outFile).replaceAll(path.sep, '/') : '',
         stderrFile: fs.existsSync(errFile) ? path.relative(iterationDir, errFile).replaceAll(path.sep, '/') : '',
       };
-      rows.push(row);
-      if (result.status !== 0 || result.timedOut) {
-        break;
-      }
-    }
-    return rows;
-  }
-
-  if (workloadPhase === 'warmup') {
-    return runPass('warmup');
-  }
-  try {
-    if (cacheMode === 'warm' && workloadPhase === 'both') {
-      await runPass('warmup');
-    }
-    return await runPass('measured');
+    });
   } finally {
     if (!keepClientCaches && frameworkConfig.clientMode !== 'hdt-download') {
       removeClientCaches(clientDir);
@@ -499,6 +544,13 @@ function writeCsv(file, rows) {
     'clientMaxCpuPercent',
     'clientAvgRssMb',
     'clientMaxRssMb',
+    'clientCpuTimeMs',
+    'clientRxBytes',
+    'clientTxBytes',
+    'clientRxPackets',
+    'clientTxPackets',
+    'resultHash',
+    'executionMode',
     'stdoutFile',
     'stderrFile',
   ];
@@ -525,6 +577,7 @@ function readCsv(file) {
       'client', 'queryIndex', 'queryInstance', 'status', 'results', 'timeMs', 'firstResultTimeMs',
       'fullResultTimeMs', 'resultThroughputPerSec', 'clientResourceSampleCount', 'clientAvgCpuPercent',
       'clientMaxCpuPercent', 'clientAvgRssMb', 'clientMaxRssMb',
+      'clientCpuTimeMs', 'clientRxBytes', 'clientTxBytes', 'clientRxPackets', 'clientTxPackets',
     ]) {
       if (row[field] !== '' && /^-?\d+(?:\.\d+)?$/u.test(row[field])) {
         row[field] = Number(row[field]);

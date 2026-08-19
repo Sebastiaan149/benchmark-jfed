@@ -4,7 +4,8 @@
   "private": true,
   "description": "Client-side dependencies for the jFed pcgen07 WatDiv benchmark",
   "dependencies": {
-    "@comunica/query-sparql-hdt": "5.0.1"
+    "@comunica/query-sparql-hdt": "5.0.1",
+    "sparql-benchmark-runner": "5.1.0"
   },
   "overrides": {
     "graphql": "16.11.0",

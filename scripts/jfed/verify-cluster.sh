@@ -21,11 +21,15 @@ for ip_address in "$SERVER_IP" "${client_ips[@]:1}"; do
   ping -c 2 "$ip_address"
 done
 
-node -e "require.resolve('@comunica/query-sparql-hdt', { paths: [ process.argv[1] ] }); console.log('client0 Comunica HDT client OK')" \
+node -e "for (const dependency of ['@comunica/query-sparql-hdt', 'sparql-benchmark-runner']) require.resolve(dependency, { paths: [ process.argv[1] ] }); console.log('client0 persistent JBR dependencies OK')" \
   "$BENCHMARK_DIR"
 for target in "${remote_clients[@]}"; do
   ssh -o BatchMode=yes "$target" \
-    "node -e \"require.resolve('@comunica/query-sparql-hdt', { paths: [ process.argv[1] ] }); console.log('remote Comunica HDT client OK')\" '$REMOTE_CLIENT_BENCHMARK_DIR'"
+    "set -e; node -e \"for (const dependency of ['@comunica/query-sparql-hdt', 'sparql-benchmark-runner']) require.resolve(dependency, { paths: [ process.argv[1] ] }); console.log('remote persistent JBR dependencies OK')\" '$REMOTE_CLIENT_BENCHMARK_DIR'; for engine in query-sparql query-sparql-smartkg query-sparql-wisekg query-sparql-spf query-passage; do test -f '$REMOTE_CLIENT_WORKSPACE/comunicaMT/engines/'\"\$engine\"'/bin/http.js'; done"
+done
+
+for engine in query-sparql query-sparql-smartkg query-sparql-wisekg query-sparql-spf query-passage; do
+  test -f "$COMUNICA_DIR/engines/$engine/bin/http.js"
 done
 
 ssh -o BatchMode=yes "$SERVER_SSH" \

@@ -8,7 +8,7 @@ source "$SCRIPT_DIR/../shared/common.sh"
 for command in node ssh rsync curl sudo; do
   require_command "$command"
 done
-node -e "require.resolve('@comunica/query-sparql-hdt', { paths: [ process.argv[1] ] })" "$BENCHMARK_DIR" >/dev/null
+node -e "for (const dependency of ['@comunica/query-sparql-hdt', 'sparql-benchmark-runner']) require.resolve(dependency, { paths: [ process.argv[1] ] })" "$BENCHMARK_DIR" >/dev/null
 
 PROFILE="${1:-}"
 case "$PROFILE" in

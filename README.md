@@ -144,6 +144,38 @@ The full profile runs:
 - `1, 2, 4, 8, 16, 32, 64` limited concurrent clients with five queries each.
 - Dataset sizes `1M`, `10M`, `50M`, and `100M`.
 
+### Persistent JBR/Comunica clients
+
+Every logical client starts one JBR query runner and one local Comunica HTTP
+endpoint per benchmark iteration. All queries assigned to that client and
+iteration are sent to the same endpoint worker. The endpoint is selected from
+the framework configuration (`query-sparql`, SmartKG, WiseKG, SPF, Passage, or
+HDT), so the SPARQL-endpoint baseline also runs through
+`comunica-sparql-http`. Comunica module loading, endpoint startup, worker
+creation, and startup-time V8 work happen before the first measured query.
+The endpoint is stopped after the iteration.
+
+JBR uses `sparql-benchmark-runner` for its WatDiv and SPARQL-custom query
+execution. The benchmark adapter reuses that runner's binding parser and
+single-query execution method while placing measurement callbacks around each
+individual query. `timeMs` begins immediately before JBR sends that query and
+ends when the parsed binding stream ends. `firstResultTimeMs` is the timestamp
+of the first parsed RDF binding, not the arrival of the first response bytes.
+`results` and `resultHash` are likewise calculated from parsed bindings.
+
+The existing `query-times.csv` columns remain stable. Additional columns record
+the persistent execution mode, result hash, endpoint-process CPU time, and
+per-query network byte/packet deltas. CPU/RAM sampling covers the persistent
+Comunica endpoint master and worker only; it excludes endpoint/V8 startup and
+the small JBR HTTP driver. Per-query network deltas exclude loopback traffic
+between JBR and the local Comunica endpoint and are emitted when logical-client
+network namespaces are enabled. The existing `client-netns.csv` stage counters
+and server resource measurements remain unchanged.
+
+Passage journals are generated as a triple store using Blazegraph `DiskRW`.
+Regenerate an older Passage journal after changing these settings; changing the
+properties file does not convert an existing `DiskWORM` journal.
+
 Each limited logical client receives the same cgroup limits: 0.25 CPU core and
 2 GiB RAM, with a 1536 MiB Node.js old-space limit. At the largest 22-client
 node allocation this reserves at most 5.5 of 6 cores and 44 of 56 GiB, leaving

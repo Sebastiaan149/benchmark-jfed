@@ -16,10 +16,6 @@ RDF2HDT="$SMARTKG_CREATOR_DIR/libhdt/tools/rdf2hdt"
 GET_FAMILIES="$SMARTKG_CREATOR_DIR/libhdt/tools/getFamilies"
 MAKE_CLASSES="$SMARTKG_CREATOR_DIR/make_filtered_classes.sh"
 
-require_file "$RDF2HDT"
-require_file "$GET_FAMILIES"
-require_file "$MAKE_CLASSES"
-
 framework_enabled() {
   local expected="$1"
   for framework in $FRAMEWORKS; do
@@ -29,6 +25,23 @@ framework_enabled() {
   done
   return 1
 }
+
+only_passage_requested() {
+  local framework
+  for framework in $FRAMEWORKS; do
+    if [[ "$framework" != "passage" ]]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+# Passage-only regeneration must not depend on the SmartKG partitioning tools.
+if ! only_passage_requested; then
+  require_file "$RDF2HDT"
+  require_file "$GET_FAMILIES"
+  require_file "$MAKE_CLASSES"
+fi
 
 prepare_get_families_limits() {
   local hard_limit
@@ -348,9 +361,21 @@ prepare_passage() {
   local passage_dir="$data_dir/passage"
   mkdir -p "$passage_dir"
 
+  if [[ -f "$passage_dir/dataset.jnl" && "${FORCE_PASSAGE:-0}" != "1" ]]; then
+    return
+  fi
+
+  local jar="$WORKSPACE_ROOT/passage-server/passage-cli/target/passage-server.jar"
+  require_file "$jar"
+  rm -f "$passage_dir/dataset.jnl"
+
   cat > "$passage_dir/local-data.properties" <<EOF
 com.bigdata.journal.AbstractJournal.file=$passage_dir/dataset.jnl
-com.bigdata.rdf.store.AbstractTripleStore.quads=true
+# Passage is benchmarked over WatDiv's single default graph. Use Blazegraph's
+# reclaiming read/write store and triple indexes; DiskWORM plus quad indexes
+# produces a much larger journal without adding semantics needed here.
+com.bigdata.journal.AbstractJournal.bufferMode=DiskRW
+com.bigdata.rdf.store.AbstractTripleStore.quads=false
 com.bigdata.rdf.store.AbstractTripleStore.statementIdentifiers=false
 com.bigdata.rdf.store.AbstractTripleStore.textIndex=false
 com.bigdata.rdf.store.AbstractTripleStore.axiomsClass=com.bigdata.rdf.axioms.NoAxioms
@@ -359,14 +384,6 @@ com.bigdata.rdf.store.AbstractTripleStore.justify=false
 com.bigdata.namespace.kb.lex.com.bigdata.btree.BTree.branchingFactor=400
 com.bigdata.namespace.kb.spo.com.bigdata.btree.BTree.branchingFactor=1024
 EOF
-
-  if [[ -f "$passage_dir/dataset.jnl" && "${FORCE_PASSAGE:-0}" != "1" ]]; then
-    return
-  fi
-
-  local jar="$WORKSPACE_ROOT/passage-server/passage-cli/target/passage-server.jar"
-  require_file "$jar"
-  rm -f "$passage_dir/dataset.jnl"
 
   RIO_API="$(find "$HOME/.m2/repository/org/openrdf/sesame/sesame-rio-api" -name 'sesame-rio-api-*.jar' | sort -V | tail -1)"
   RIO_NTRIPLES="$(find "$HOME/.m2/repository/org/openrdf/sesame/sesame-rio-ntriples" -name 'sesame-rio-ntriples-*.jar' | sort -V | tail -1)"
@@ -408,7 +425,9 @@ NODE
 for size in $SIZES; do
   data_dir="$(size_dir "$size")"
   require_file "$data_dir/dataset.nt"
-  require_file "$data_dir/dataset.hdt"
+  if ! only_passage_requested; then
+    require_file "$data_dir/dataset.hdt"
+  fi
 
   if framework_enabled smartkg-plus || framework_enabled wisekg; then
     echo "==> Preparing characteristic sets for $size"
@@ -430,5 +449,7 @@ for size in $SIZES; do
     prepare_passage "$size" "$data_dir"
   fi
 
-  record_dataset_statistics "$data_dir"
+  if ! only_passage_requested; then
+    record_dataset_statistics "$data_dir"
+  fi
 done

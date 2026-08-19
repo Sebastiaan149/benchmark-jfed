@@ -691,12 +691,16 @@ archive_server_incident() {
 stop_active_client_workloads() {
   sudo pkill -TERM -f "$BENCHMARK_DIR/scripts/client/run-slice.sh" >/dev/null 2>&1 || true
   sudo pkill -TERM -f "$BENCHMARK_DIR/scripts/benchmark/run-benchmark.js" >/dev/null 2>&1 || true
-  sudo pkill -TERM -f "$WORKSPACE_ROOT/comunicaMT/engines/.*/bin/query.js" >/dev/null 2>&1 || true
+  sudo pkill -TERM -f "$BENCHMARK_DIR/scripts/benchmark/jbr-persistent-client.js" >/dev/null 2>&1 || true
+  sudo pkill -TERM -f "$WORKSPACE_ROOT/comunicaMT/engines/.*/bin/http.js" >/dev/null 2>&1 || true
+  sudo pkill -TERM -f "$BENCHMARK_DIR/node_modules/@comunica/query-sparql-hdt/bin/http.js" >/dev/null 2>&1 || true
 
   for node in "${CLIENT_NODES[@]}"; do
     remote_client "$node" "sudo pkill -TERM -f '$REMOTE_CLIENT_BENCHMARK_DIR/scripts/client/run-slice.sh' >/dev/null 2>&1 || true; \
       sudo pkill -TERM -f '$REMOTE_CLIENT_BENCHMARK_DIR/scripts/benchmark/run-benchmark.js' >/dev/null 2>&1 || true; \
-      sudo pkill -TERM -f '$REMOTE_CLIENT_WORKSPACE/comunicaMT/engines/.*/bin/query.js' >/dev/null 2>&1 || true" \
+      sudo pkill -TERM -f '$REMOTE_CLIENT_BENCHMARK_DIR/scripts/benchmark/jbr-persistent-client.js' >/dev/null 2>&1 || true; \
+      sudo pkill -TERM -f '$REMOTE_CLIENT_WORKSPACE/comunicaMT/engines/.*/bin/http.js' >/dev/null 2>&1 || true; \
+      sudo pkill -TERM -f '$REMOTE_CLIENT_BENCHMARK_DIR/node_modules/@comunica/query-sparql-hdt/bin/http.js' >/dev/null 2>&1 || true" \
       >/dev/null 2>&1 || true
   done
 }
