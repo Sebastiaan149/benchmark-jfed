@@ -29,7 +29,7 @@ for target in "${remote_clients[@]}"; do
 done
 
 for engine in query-sparql query-sparql-smartkg query-sparql-wisekg query-sparql-spf query-passage; do
-  test -f "$COMUNICA_DIR/engines/$engine/bin/http.js"
+  test -f "$WORKSPACE_ROOT/comunicaMT/engines/$engine/bin/http.js"
 done
 
 ssh -o BatchMode=yes "$SERVER_SSH" \
