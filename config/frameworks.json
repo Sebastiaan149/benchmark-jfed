@@ -149,7 +149,7 @@
       "engine": "query-sparql",
       "source": "http://localhost:{port}/sparql",
       "cacheModes": ["cold"],
-      "requires": ["dataset.hdt"]
+      "requires": ["dataset.nt"]
     },
     "ldf-endpoint-cache": {
       "port": 18185, "server": "nginx-fragment-cache", "cacheOriginFramework": "ldf-endpoint",
