@@ -140,7 +140,7 @@ cd /local/masterproef_repos/benchmark-jfed
 
 The full profile runs:
 
-- One unrestricted client with all 20 template queries.
+- One unrestricted client with all 20 template queries, iterated three times.
 - `1, 2, 4, 8, 16, 32, 64` limited concurrent clients with five queries each.
 - Dataset sizes `1M`, `10M`, `50M`, and `100M`.
 

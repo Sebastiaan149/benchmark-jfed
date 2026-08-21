@@ -78,12 +78,12 @@ else
     NAMESPACE_LATENCY_MS="$NAMESPACE_LATENCY_MS" \
       "$SCRIPT_DIR/../client/setup-netns.sh"
 
-  echo "==> Full benchmark 1/2: one unlimited client, 20 template queries, one iteration, 100 Mbit/s"
+  echo "==> Full benchmark 1/2: one unlimited client, 20 template queries, three iterations, 100 Mbit/s"
   RESULTS_ROOT="$single_results" \
   REMOTE_RESULTS_ROOT="$REMOTE_BENCHMARK_DIR/watdiv-results/full/single-unlimited" \
   REMOTE_CLIENT_RESULTS_ROOT="$REMOTE_CLIENT_BENCHMARK_DIR/watdiv-results/full/single-unlimited" \
   CONCURRENCY="1" \
-  ITERATIONS="1" \
+  ITERATIONS="3" \
   QUERY_SELECTION="twenty" \
   QUERY_LIMIT="20" \
   CLIENT_CPU_MAX="max" \
